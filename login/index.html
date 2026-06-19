@@ -1,0 +1,63 @@
+
+<!doctype html>
+<html lang="ja">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>ログイン | Zemi</title>
+		<link rel="stylesheet" href="styles.css" />
+	</head>
+	<body>
+		<main class="page">
+			<section class="panel" style="width:min(100%,560px)">
+				<span class="eyebrow" style="background:rgba(20,184,166,0.12);color:var(--accent-strong);border-color:rgba(20,184,166,0.18)">Zemi Account</span>
+				<h2 style="margin-top:16px">ログイン</h2>
+				<p>登録済みのニックネームとパスワードを入力してください。</p>
+
+				<form id="loginForm" class="form" autocomplete="on">
+					<div class="field">
+						<label for="nickname">ニックネーム</label>
+						<input id="nickname" name="nickname" type="text" required maxlength="24" />
+					</div>
+					<div class="field">
+						<label for="password">パスワード</label>
+						<input id="password" name="password" type="password" required minlength="4" />
+					</div>
+
+					<div id="loginMessage" class="message" aria-live="polite"></div>
+
+					<div class="actions">
+						<button class="button" type="submit">マイページへ</button>
+						<a class="button-secondary" href="register.html">アカウントを新規作成</a>
+					</div>
+				</form>
+			</section>
+		</main>
+
+		<script src="auth.js"></script>
+		<script>
+			if (getCurrentUser()) {
+				window.location.href = "home.html";
+			}
+
+			const form = document.getElementById("loginForm");
+			const message = document.getElementById("loginMessage");
+
+			form.addEventListener("submit", async (event) => {
+				event.preventDefault();
+
+				const formData = new FormData(form);
+				const nickname = String(formData.get("nickname") || "").trim();
+				const password = String(formData.get("password") || "");
+
+				try {
+					await loginAccount(nickname, password);
+					setMessage(message, "ログインしました。マイページへ移動します。", "success");
+					window.location.href = "home.html";
+				} catch (error) {
+					setMessage(message, error.message, "error");
+				}
+			});
+		</script>
+	</body>
+</html>
