@@ -9,11 +9,16 @@ require_once __DIR__ . '/includes/chat_session.php';
 $error = '';
 $conflicts = [];
 $usedDemo = isGeminiDemoMode();
+$postAction = '';
+$plansGenerated = false;
+$eventsGenerated = false;
+$messageAdded = false;
 
 initChatSession();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = readInputString($_POST, 'action', 'message');
+    $postAction = $action;
 
     if (!isValidCsrfPost()) {
         $error = csrfErrorMessage();
@@ -33,6 +38,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             } else {
                 setSelectedPlanId($planId);
                 setChatProposedEvents($plan['events'] ?? []);
+                $eventsGenerated = true;
             }
         }
 
@@ -93,6 +99,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     setSelectedPlanId('');
                     $result = chatWithScheduleAssistant(getChatMessages());
                     addChatAssistantMessage($result['reply']);
+                    $messageAdded = true;
 
                     if ($result['constraints'] !== []) {
                         setChatConstraints($result['constraints']);
@@ -102,9 +109,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         setChatPlans($result['plans']);
                         setChatProposedEvents([]);
                         setSelectedPlanId('');
+                        $plansGenerated = true;
                     } elseif ($result['events'] !== []) {
                         setChatPlans([]);
                         setChatProposedEvents($result['events']);
+                        $eventsGenerated = true;
                     }
                 } catch (Throwable $e) {
                     array_pop($_SESSION['chat_messages']);
@@ -121,6 +130,13 @@ $plans = getChatPlans();
 $constraints = getChatConstraints();
 $selectedPlanId = getSelectedPlanId();
 $constraintsSummary = buildConstraintsSummary($constraints);
+$scrollTarget = determineChatScrollTarget(
+    $postAction,
+    $error,
+    $plansGenerated,
+    $eventsGenerated,
+    $messageAdded
+);
 ?>
 <!DOCTYPE html>
 <html lang="ja">
@@ -130,7 +146,7 @@ $constraintsSummary = buildConstraintsSummary($constraints);
   <title>AI相談 - カレンダー</title>
   <link rel="stylesheet" href="style.css">
 </head>
-<body>
+<body data-scroll-intent="<?= htmlspecialchars($scrollTarget, ENT_QUOTES, 'UTF-8') ?>">
   <div class="app">
     <header class="app-header app-header-split">
       <a class="back-link" href="index.php">← カレンダーに戻る</a>
@@ -138,7 +154,7 @@ $constraintsSummary = buildConstraintsSummary($constraints);
     </header>
 
     <?php if ($error !== ''): ?>
-      <div class="alert alert-error"><?= htmlspecialchars($error, ENT_QUOTES, 'UTF-8') ?></div>
+      <div id="chat-feedback" class="alert alert-error" role="alert" aria-live="assertive"><?= htmlspecialchars($error, ENT_QUOTES, 'UTF-8') ?></div>
     <?php endif; ?>
 
     <?php if ($usedDemo): ?>
@@ -152,14 +168,14 @@ $constraintsSummary = buildConstraintsSummary($constraints);
     <?php endif; ?>
 
     <div class="chat-panel">
-      <div class="chat-messages">
+      <div class="chat-messages" id="chat-messages">
         <?php foreach ($messages as $message): ?>
           <?php
-          $role = $message['role'] ?? 'assistant';
+          $role = ($message['role'] ?? 'assistant') === 'user' ? 'user' : 'assistant';
           $class = $role === 'user' ? 'chat-bubble chat-bubble-user' : 'chat-bubble chat-bubble-ai';
           $label = $role === 'user' ? 'あなた' : 'AI';
           ?>
-          <div class="<?= $class ?>">
+          <div class="<?= $class ?>" data-chat-role="<?= $role ?>">
             <p class="chat-label"><?= $label ?></p>
             <p class="chat-text"><?= nl2br(htmlspecialchars((string) ($message['content'] ?? ''), ENT_QUOTES, 'UTF-8')) ?></p>
           </div>
@@ -175,7 +191,7 @@ $constraintsSummary = buildConstraintsSummary($constraints);
     </div>
 
     <?php if ($plans !== []): ?>
-      <div class="panel">
+      <div id="chat-plans" class="panel">
         <h2 class="panel-title">プランを選ぶ</h2>
         <p class="panel-desc">AIが提案した3つのプランです。ベースにしたいものを選んでから、チャットで調整できます。</p>
         <div class="plan-grid">
@@ -215,7 +231,7 @@ $constraintsSummary = buildConstraintsSummary($constraints);
     <?php endif; ?>
 
     <?php if ($proposedEvents !== []): ?>
-      <div class="panel">
+      <div id="chat-proposed-events" class="panel">
         <h2 class="panel-title">
           <?= $selectedPlanId !== '' ? 'プラン' . htmlspecialchars($selectedPlanId, ENT_QUOTES, 'UTF-8') . ' の予定' : '提案された予定' ?>
         </h2>
@@ -271,5 +287,6 @@ $constraintsSummary = buildConstraintsSummary($constraints);
       <button class="text-btn" type="submit">新しい相談を始める</button>
     </form>
   </div>
+  <script src="assets/js/chat.js" defer></script>
 </body>
 </html>

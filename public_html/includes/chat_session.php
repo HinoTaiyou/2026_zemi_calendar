@@ -149,6 +149,39 @@ function ensureChatEventTokens(array $events): array
     return $events;
 }
 
+/**
+ * Decide where the chat page should scroll after a request, expressed as a
+ * semantic intent (resolved to a real element in assets/js/chat.js):
+ *   ''           - no scroll (initial GET, reload, reset)
+ *   'feedback'   - the error/notice banner
+ *   'plans'      - the freshly generated plan list
+ *   'events'     - the freshly generated proposed-events panel
+ *   'latest-reply' - the newest AI reply inside the chat scroll container
+ *
+ * Only what happened in THIS request matters: plans left over in the session
+ * from an earlier turn must not pull the view to the plan list.
+ */
+function determineChatScrollTarget(string $action, string $error, bool $plansGenerated, bool $eventsGenerated, bool $messageAdded): string
+{
+    if ($action === '') {
+        return '';
+    }
+    if ($error !== '') {
+        return 'feedback';
+    }
+    if ($plansGenerated) {
+        return 'plans';
+    }
+    if ($eventsGenerated) {
+        return 'events';
+    }
+    if ($messageAdded) {
+        return 'latest-reply';
+    }
+
+    return '';
+}
+
 function ensureChatPlanTokens(array $plans): array
 {
     foreach ($plans as $index => $plan) {

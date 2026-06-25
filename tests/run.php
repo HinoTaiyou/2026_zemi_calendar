@@ -269,5 +269,28 @@ assertTest('AI proposal token added', isset($tokenized[0]['ai_idempotency_key'])
 $retokenized = ensureChatEventTokens($tokenized);
 assertTest('AI proposal token stable', $tokenized[0]['ai_idempotency_key'] === $retokenized[0]['ai_idempotency_key']);
 
+assertTest('scroll intent empty on GET',
+    determineChatScrollTarget('', '', false, false, false) === '');
+assertTest('scroll intent empty on reset GET-equivalent',
+    determineChatScrollTarget('', 'ignored', true, true, true) === '');
+assertTest('scroll intent feedback on POST error',
+    determineChatScrollTarget('message', 'some error', false, false, false) === 'feedback');
+assertTest('scroll intent plans on new plans generated',
+    determineChatScrollTarget('message', '', true, false, true) === 'plans');
+assertTest('scroll intent events on new events',
+    determineChatScrollTarget('message', '', false, true, true) === 'events');
+assertTest('scroll intent latest-reply on plain reply',
+    determineChatScrollTarget('message', '', false, false, true) === 'latest-reply');
+assertTest('scroll intent empty when nothing happened',
+    determineChatScrollTarget('message', '', false, false, false) === '');
+assertTest('scroll intent events on select_plan',
+    determineChatScrollTarget('select_plan', '', false, true, false) === 'events');
+assertTest('scroll intent latest-reply not plans for reply only (past plans in session)',
+    determineChatScrollTarget('message', '', false, false, true) === 'latest-reply');
+assertTest('scroll intent feedback wins over plans generated',
+    determineChatScrollTarget('message', 'AI error', true, false, true) === 'feedback');
+assertTest('scroll intent plans wins over latest-reply when both',
+    determineChatScrollTarget('message', '', true, false, true) === 'plans');
+
 echo "\nPassed: {$passed}, Failed: {$failed}\n";
 exit($failed === 0 ? 0 : 1);
