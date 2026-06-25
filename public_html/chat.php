@@ -147,146 +147,183 @@ $scrollTarget = determineChatScrollTarget(
   <link rel="stylesheet" href="style.css">
 </head>
 <body data-scroll-intent="<?= htmlspecialchars($scrollTarget, ENT_QUOTES, 'UTF-8') ?>">
-  <div class="app">
-    <header class="app-header app-header-split">
-      <a class="back-link" href="index.php">← カレンダーに戻る</a>
-      <h1 class="app-title">AIチャット</h1>
-    </header>
+  <header class="site-header">
+    <div class="site-header-inner">
+      <a class="site-brand" href="index.php">
+        <span class="site-brand-mark">C</span>
+        <span>Calm Focus Calendar</span>
+      </a>
+      <nav class="site-nav" aria-label="メインナビゲーション">
+        <a class="site-nav-link" href="index.php">カレンダー</a>
+        <a class="site-nav-link" href="chat.php" aria-current="page">AIチャット</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="app app--wide">
+    <div class="page-head">
+      <div class="page-head-titles">
+        <h1 class="page-title">AIチャット</h1>
+        <p class="page-subtitle">やりたいこと・期間・頻度を伝えると、3つのプランを提案します</p>
+      </div>
+      <div class="page-head-actions">
+        <a class="back-link" href="index.php">← カレンダーに戻る</a>
+      </div>
+    </div>
 
     <?php if ($error !== ''): ?>
       <div id="chat-feedback" class="alert alert-error" role="alert" aria-live="assertive"><?= htmlspecialchars($error, ENT_QUOTES, 'UTF-8') ?></div>
     <?php endif; ?>
 
-    <?php if ($usedDemo): ?>
-      <div class="panel-note chat-note">デモモードです。config.php に Gemini API キーを設定すると本格的な相談ができます。</div>
-    <?php endif; ?>
-
-    <?php if ($constraintsSummary !== ''): ?>
-      <div class="constraints-banner">
-        <strong>学習条件:</strong> <?= htmlspecialchars($constraintsSummary, ENT_QUOTES, 'UTF-8') ?>
-      </div>
-    <?php endif; ?>
-
-    <div class="chat-panel">
-      <div class="chat-messages" id="chat-messages">
-        <?php foreach ($messages as $message): ?>
-          <?php
-          $role = ($message['role'] ?? 'assistant') === 'user' ? 'user' : 'assistant';
-          $class = $role === 'user' ? 'chat-bubble chat-bubble-user' : 'chat-bubble chat-bubble-ai';
-          $label = $role === 'user' ? 'あなた' : 'AI';
-          ?>
-          <div class="<?= $class ?>" data-chat-role="<?= $role ?>">
-            <p class="chat-label"><?= $label ?></p>
-            <p class="chat-text"><?= nl2br(htmlspecialchars((string) ($message['content'] ?? ''), ENT_QUOTES, 'UTF-8')) ?></p>
-          </div>
-        <?php endforeach; ?>
-      </div>
-
-      <form class="chat-form" method="post">
-        <?= csrfInput() ?>
-        <input type="hidden" name="action" value="message">
-        <textarea class="form-input form-textarea chat-input" name="message" rows="3" placeholder="例：基本情報の資格を2026年12月までに。必要時間120時間。平日夜がいい" required></textarea>
-        <button class="primary-btn" type="submit">送信</button>
-      </form>
-    </div>
-
-    <?php if ($plans !== []): ?>
-      <div id="chat-plans" class="panel">
-        <h2 class="panel-title">プランを選ぶ</h2>
-        <p class="panel-desc">AIが提案した3つのプランです。ベースにしたいものを選んでから、チャットで調整できます。</p>
-        <div class="plan-grid">
-          <?php foreach ($plans as $plan): ?>
-            <?php
-            $planId = (string) ($plan['id'] ?? '');
-            $weeklyHours = calculatePlanWeeklyHours($plan['events'] ?? []);
-            $minHours = $constraints['min_hours_per_week'] ?? null;
-            $meets = planMeetsConstraint($plan['events'] ?? [], is_float($minHours) ? $minHours : null);
-            $isSelected = $selectedPlanId === $planId;
-            ?>
-            <div class="plan-card<?= $isSelected ? ' plan-card-selected' : '' ?>">
-              <div class="plan-card-header">
-                <span class="plan-id">プラン<?= htmlspecialchars($planId, ENT_QUOTES, 'UTF-8') ?></span>
-                <h3 class="plan-name"><?= htmlspecialchars((string) ($plan['name'] ?? ''), ENT_QUOTES, 'UTF-8') ?></h3>
-              </div>
-              <p class="plan-summary"><?= htmlspecialchars((string) ($plan['summary'] ?? ''), ENT_QUOTES, 'UTF-8') ?></p>
-              <p class="plan-hours">週あたり <?= $weeklyHours ?> 時間</p>
-              <?php if ($minHours !== null): ?>
-                <p class="plan-status<?= $meets ? ' plan-status-ok' : ' plan-status-warn' ?>">
-                  <?= $meets ? '✓ 必要時間を確保' : '⚠ 週' . $minHours . '時間以上が推奨' ?>
-                </p>
-              <?php endif; ?>
-              <p class="plan-count"><?= count($plan['events'] ?? []) ?>件の予定</p>
-              <form method="post">
-                <?= csrfInput() ?>
-                <input type="hidden" name="action" value="select_plan">
-                <input type="hidden" name="plan_id" value="<?= htmlspecialchars($planId, ENT_QUOTES, 'UTF-8') ?>">
-                <button class="secondary-btn plan-select-btn" type="submit">
-                  <?= $isSelected ? '選択中' : 'このプランを選ぶ' ?>
-                </button>
-              </form>
-            </div>
-          <?php endforeach; ?>
-        </div>
-      </div>
-    <?php endif; ?>
-
-    <?php if ($proposedEvents !== []): ?>
-      <div id="chat-proposed-events" class="panel">
-        <h2 class="panel-title">
-          <?= $selectedPlanId !== '' ? 'プラン' . htmlspecialchars($selectedPlanId, ENT_QUOTES, 'UTF-8') . ' の予定' : '提案された予定' ?>
-        </h2>
-        <p class="panel-desc">内容を確認して、問題なければカレンダーに追加してください。修正はチャットで伝えられます。</p>
-        <ul class="event-list event-list-compact">
-          <?php foreach (array_slice($proposedEvents, 0, 8) as $event): ?>
-            <li class="event-list-item">
-              <span class="event-list-date"><?= htmlspecialchars($event['date'], ENT_QUOTES, 'UTF-8') ?></span>
-              <span class="event-list-time"><?= htmlspecialchars(formatEventTime($event), ENT_QUOTES, 'UTF-8') ?></span>
-              <span class="event-list-title"><?= htmlspecialchars($event['title'], ENT_QUOTES, 'UTF-8') ?></span>
-            </li>
-          <?php endforeach; ?>
-        </ul>
-        <?php if (count($proposedEvents) > 8): ?>
-          <p class="panel-desc">…他 <?= count($proposedEvents) - 8 ?> 件</p>
+    <div class="chat-layout">
+      <div class="chat-main">
+        <?php if ($usedDemo): ?>
+          <div class="panel-note chat-note">デモモードです。config.php に Gemini API キーを設定すると本格的な相談ができます。</div>
         <?php endif; ?>
-        <?php if ($conflicts !== []): ?>
-          <div class="alert alert-warning">
-            <p>以下の予定と時間が重なっています。</p>
-            <ul class="conflict-list">
-              <?php foreach ($conflicts as $conflict): ?>
-                <?php $target = formatConflictTarget($conflict); ?>
-                <li>
-                  <strong><?= htmlspecialchars($target['label'], ENT_QUOTES, 'UTF-8') ?>:</strong>
-                  <?= htmlspecialchars((string) ($target['event']['title'] ?? ''), ENT_QUOTES, 'UTF-8') ?>
-                  （<?= htmlspecialchars(formatEventRangeText($target['event']), ENT_QUOTES, 'UTF-8') ?>）
+
+        <?php if ($constraintsSummary !== ''): ?>
+          <div class="constraints-banner">
+            <strong>学習条件:</strong> <?= htmlspecialchars($constraintsSummary, ENT_QUOTES, 'UTF-8') ?>
+          </div>
+        <?php endif; ?>
+
+        <div class="chat-panel">
+          <div class="chat-messages" id="chat-messages" role="log" aria-label="AIとの会話">
+            <?php foreach ($messages as $message): ?>
+              <?php
+              $role = ($message['role'] ?? 'assistant') === 'user' ? 'user' : 'assistant';
+              $class = $role === 'user' ? 'chat-bubble chat-bubble-user' : 'chat-bubble chat-bubble-ai';
+              $label = $role === 'user' ? 'あなた' : 'AI';
+              ?>
+              <div class="<?= $class ?>" data-chat-role="<?= $role ?>">
+                <p class="chat-label"><?= $label ?></p>
+                <p class="chat-text"><?= nl2br(htmlspecialchars((string) ($message['content'] ?? ''), ENT_QUOTES, 'UTF-8')) ?></p>
+              </div>
+            <?php endforeach; ?>
+          </div>
+
+          <form class="chat-form" method="post">
+            <?= csrfInput() ?>
+            <input type="hidden" name="action" value="message">
+            <label class="form-label" for="chat-message">メッセージ</label>
+            <textarea class="form-input form-textarea chat-input" id="chat-message" name="message" rows="3" placeholder="例：基本情報の資格を2026年12月までに。必要時間120時間。平日夜がいい" required></textarea>
+            <button class="primary-btn" type="submit">送信</button>
+          </form>
+        </div>
+
+        <?php if ($plans !== []): ?>
+          <a class="plan-jump" href="#chat-plans"><?= count($plans) ?>件のプランを見る ↓</a>
+        <?php endif; ?>
+      </div>
+
+      <aside class="chat-side" aria-label="プランと予定候補">
+        <?php if ($plans !== []): ?>
+          <div id="chat-plans" class="panel">
+            <h2 class="plan-section-title">プランを選ぶ</h2>
+            <p class="plan-section-desc">ベースにしたいプランを選び、チャットで調整できます。</p>
+            <div class="plan-grid">
+              <?php foreach ($plans as $plan): ?>
+                <?php
+                $planId = (string) ($plan['id'] ?? '');
+                $weeklyHours = calculatePlanWeeklyHours($plan['events'] ?? []);
+                $minHours = $constraints['min_hours_per_week'] ?? null;
+                $meets = planMeetsConstraint($plan['events'] ?? [], is_float($minHours) ? $minHours : null);
+                $isSelected = $selectedPlanId === $planId;
+                ?>
+                <div class="plan-card<?= $isSelected ? ' plan-card-selected' : '' ?>">
+                  <div class="plan-card-header">
+                    <span class="plan-id" aria-label="プラン<?= htmlspecialchars($planId, ENT_QUOTES, 'UTF-8') ?>"><?= htmlspecialchars($planId, ENT_QUOTES, 'UTF-8') ?></span>
+                    <h3 class="plan-name"><?= htmlspecialchars((string) ($plan['name'] ?? ''), ENT_QUOTES, 'UTF-8') ?></h3>
+                    <span class="plan-selected-badge">✓ 選択中</span>
+                  </div>
+                  <p class="plan-hours">週あたり <?= $weeklyHours ?> 時間</p>
+                  <?php if ($minHours !== null): ?>
+                    <span class="plan-status<?= $meets ? ' plan-status-ok' : ' plan-status-warn' ?>">
+                      <?= $meets ? '✓ 必要時間を確保' : '⚠ 週' . $minHours . '時間以上が推奨' ?>
+                    </span>
+                  <?php endif; ?>
+                  <p class="plan-count"><?= count($plan['events'] ?? []) ?>件の予定</p>
+                  <p class="plan-summary"><?= htmlspecialchars((string) ($plan['summary'] ?? ''), ENT_QUOTES, 'UTF-8') ?></p>
+                  <form method="post">
+                    <?= csrfInput() ?>
+                    <input type="hidden" name="action" value="select_plan">
+                    <input type="hidden" name="plan_id" value="<?= htmlspecialchars($planId, ENT_QUOTES, 'UTF-8') ?>">
+                    <button class="<?= $isSelected ? 'primary-btn' : 'secondary-btn' ?> plan-select-btn" type="submit">
+                      <?= $isSelected ? '選択中' : 'このプランを選ぶ' ?>
+                    </button>
+                  </form>
+                </div>
+              <?php endforeach; ?>
+            </div>
+          </div>
+        <?php endif; ?>
+
+        <?php if ($proposedEvents !== []): ?>
+          <div id="chat-proposed-events" class="panel">
+            <h2 class="plan-section-title">
+              <?= $selectedPlanId !== '' ? 'プラン' . htmlspecialchars($selectedPlanId, ENT_QUOTES, 'UTF-8') . ' の予定' : '提案された予定' ?>
+            </h2>
+            <p class="plan-section-desc">内容を確認して、問題なければカレンダーに追加してください。</p>
+            <ul class="event-list event-list-compact">
+              <?php foreach (array_slice($proposedEvents, 0, 8) as $event): ?>
+                <li class="event-list-item">
+                  <span class="event-list-date"><?= htmlspecialchars($event['date'], ENT_QUOTES, 'UTF-8') ?></span>
+                  <span class="event-list-time"><?= htmlspecialchars(formatEventTime($event), ENT_QUOTES, 'UTF-8') ?></span>
+                  <span class="event-list-title"><?= htmlspecialchars($event['title'], ENT_QUOTES, 'UTF-8') ?></span>
                 </li>
               <?php endforeach; ?>
             </ul>
+            <?php if (count($proposedEvents) > 8): ?>
+              <p class="plan-section-desc">…他 <?= count($proposedEvents) - 8 ?> 件</p>
+            <?php endif; ?>
+            <?php if ($conflicts !== []): ?>
+              <div class="alert alert-warning">
+                <p>以下の予定と時間が重なっています。</p>
+                <ul class="conflict-list">
+                  <?php foreach ($conflicts as $conflict): ?>
+                    <?php $target = formatConflictTarget($conflict); ?>
+                    <li>
+                      <strong><?= htmlspecialchars($target['label'], ENT_QUOTES, 'UTF-8') ?>:</strong>
+                      <?= htmlspecialchars((string) ($target['event']['title'] ?? ''), ENT_QUOTES, 'UTF-8') ?>
+                      （<?= htmlspecialchars(formatEventRangeText($target['event']), ENT_QUOTES, 'UTF-8') ?>）
+                    </li>
+                  <?php endforeach; ?>
+                </ul>
+              </div>
+            <?php endif; ?>
+            <div class="form-actions">
+              <form method="post" onsubmit="this.querySelector('button[type=submit]').disabled=true;">
+                <?= csrfInput() ?>
+                <input type="hidden" name="action" value="confirm">
+                <button class="primary-btn" type="submit">この内容でカレンダーに追加</button>
+              </form>
+              <?php if ($conflicts !== []): ?>
+                <form method="post" onsubmit="this.querySelector('button[type=submit]').disabled=true;">
+                  <?= csrfInput() ?>
+                  <input type="hidden" name="action" value="confirm">
+                  <input type="hidden" name="allow_conflict" value="1">
+                  <button class="secondary-btn" type="submit">それでも登録する</button>
+                </form>
+              <?php endif; ?>
+            </div>
           </div>
         <?php endif; ?>
-        <div class="form-actions">
-          <form method="post" onsubmit="this.querySelector('button[type=submit]').disabled=true;">
-            <?= csrfInput() ?>
-            <input type="hidden" name="action" value="confirm">
-            <button class="primary-btn" type="submit">この内容でカレンダーに追加</button>
-          </form>
-          <?php if ($conflicts !== []): ?>
-            <form method="post" onsubmit="this.querySelector('button[type=submit]').disabled=true;">
-              <?= csrfInput() ?>
-              <input type="hidden" name="action" value="confirm">
-              <input type="hidden" name="allow_conflict" value="1">
-              <button class="secondary-btn" type="submit">それでも登録する</button>
-            </form>
-          <?php endif; ?>
-        </div>
-      </div>
-    <?php endif; ?>
+
+        <?php if ($plans === [] && $proposedEvents === []): ?>
+          <div class="plan-empty">
+            <p class="plan-empty-title">まだプランはありません</p>
+            <p class="plan-empty-text">会話を進めると、ここに3つのプラン候補が表示されます。やりたいこと・期間・頻度（資格なら必要時間と試験日）を伝えてみましょう。</p>
+          </div>
+        <?php endif; ?>
+      </aside>
+    </div>
 
     <form method="post" class="chat-reset-form">
       <?= csrfInput() ?>
       <input type="hidden" name="action" value="reset">
       <button class="text-btn" type="submit">新しい相談を始める</button>
     </form>
-  </div>
+  </main>
   <script src="assets/js/chat.js" defer></script>
 </body>
 </html>

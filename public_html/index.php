@@ -55,14 +55,32 @@ function dayUrl(int $year, int $month, int $day): string
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <div class="app">
-    <header class="app-header app-header-split">
-      <h1 class="app-title">カレンダー</h1>
-      <a class="primary-btn primary-btn-small" href="chat.php">AIチャット</a>
-    </header>
+  <header class="site-header">
+    <div class="site-header-inner">
+      <a class="site-brand" href="index.php">
+        <span class="site-brand-mark">C</span>
+        <span>Calm Focus Calendar</span>
+      </a>
+      <nav class="site-nav" aria-label="メインナビゲーション">
+        <a class="site-nav-link" href="index.php" aria-current="page">カレンダー</a>
+        <a class="site-nav-link" href="chat.php">AIチャット</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="app">
+    <div class="page-head">
+      <div class="page-head-titles">
+        <h1 class="page-title">カレンダー</h1>
+        <p class="page-subtitle">月間の予定を確認・管理できます</p>
+      </div>
+      <div class="page-head-actions">
+        <a class="primary-btn primary-btn-small" href="event_edit.php?date=<?= sprintf('%04d-%02d-%02d', $todayYear, $todayMonth, $todayDay) ?>">予定を追加</a>
+      </div>
+    </div>
 
     <?php if ($flash !== null): ?>
-      <div class="alert alert-<?= htmlspecialchars($flash['type'], ENT_QUOTES, 'UTF-8') ?>">
+      <div class="alert alert-<?= htmlspecialchars($flash['type'], ENT_QUOTES, 'UTF-8') ?>" role="status">
         <?= htmlspecialchars($flash['message'], ENT_QUOTES, 'UTF-8') ?>
       </div>
     <?php endif; ?>
@@ -141,6 +159,6 @@ function dayUrl(int $year, int $month, int $day): string
         </tbody>
       </table>
     </div>
-  </div>
+  </main>
 </body>
 </html>

@@ -42,14 +42,29 @@ try {
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <div class="app">
-    <header class="app-header app-header-split">
+  <header class="site-header">
+    <div class="site-header-inner">
+      <a class="site-brand" href="index.php">
+        <span class="site-brand-mark">C</span>
+        <span>Calm Focus Calendar</span>
+      </a>
+      <nav class="site-nav" aria-label="メインナビゲーション">
+        <a class="site-nav-link" href="index.php" aria-current="page">カレンダー</a>
+        <a class="site-nav-link" href="chat.php">AIチャット</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="app">
+    <div class="page-head">
       <a class="back-link" href="index.php?year=<?= $year ?>&month=<?= $month ?>">← カレンダーに戻る</a>
-      <a class="primary-btn primary-btn-small" href="event_edit.php?date=<?= htmlspecialchars($dateKey, ENT_QUOTES, 'UTF-8') ?>">予定を追加</a>
-    </header>
+      <div class="page-head-actions">
+        <a class="primary-btn primary-btn-small" href="event_edit.php?date=<?= htmlspecialchars($dateKey, ENT_QUOTES, 'UTF-8') ?>">予定を追加</a>
+      </div>
+    </div>
 
     <?php if ($flash !== null): ?>
-      <div class="alert alert-<?= htmlspecialchars($flash['type'], ENT_QUOTES, 'UTF-8') ?>">
+      <div class="alert alert-<?= htmlspecialchars($flash['type'], ENT_QUOTES, 'UTF-8') ?>" role="status">
         <?= htmlspecialchars($flash['message'], ENT_QUOTES, 'UTF-8') ?>
       </div>
     <?php endif; ?>
@@ -63,7 +78,10 @@ try {
 
       <div class="day-view-body">
         <?php if ($dayEvents === []): ?>
-          <p class="day-view-empty">予定はありません</p>
+          <div class="day-view-empty">
+            <p>この日の予定はまだありません。</p>
+            <a class="secondary-btn" href="event_edit.php?date=<?= htmlspecialchars($dateKey, ENT_QUOTES, 'UTF-8') ?>">予定を追加する</a>
+          </div>
         <?php else: ?>
           <ul class="event-list">
             <?php foreach ($dayEvents as $event): ?>
@@ -87,6 +105,6 @@ try {
         <?php endif; ?>
       </div>
     </div>
-  </div>
+  </main>
 </body>
 </html>

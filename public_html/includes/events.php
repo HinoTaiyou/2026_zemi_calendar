@@ -382,14 +382,25 @@ function renderDayEventsHtml(array $events, int $limit = 2): string
 
     foreach ($shown as $event) {
         $title = htmlspecialchars((string) ($event['title'] ?? ''), ENT_QUOTES, 'UTF-8');
-        $html .= '<span class="day-event">' . $title . '</span>';
+        $time = htmlspecialchars((string) ($event['time'] ?? ''), ENT_QUOTES, 'UTF-8');
+        $full = trim($time . ' ' . (string) ($event['title'] ?? ''));
+        $label = $time !== '' ? $time . ' ' . $title : $title;
+        $html .= '<span class="day-event" title="' . htmlspecialchars($full, ENT_QUOTES, 'UTF-8') . '">' . $label . '</span>';
     }
 
     $remaining = count($events) - count($shown);
     if ($remaining > 0) {
-        $html .= '<span class="day-event-more">+' . $remaining . '</span>';
+        $html .= '<span class="day-event-more">+' . $remaining . '件</span>';
     }
 
+    $html .= '</div>';
+
+    // Compact dot row used on narrow screens (CSS toggles visibility).
+    $dotCount = min(count($events), 3);
+    $html .= '<div class="day-events-dots" aria-hidden="true">';
+    for ($i = 0; $i < $dotCount; $i++) {
+        $html .= '<span></span>';
+    }
     $html .= '</div>';
 
     return $html;
