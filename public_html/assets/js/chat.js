@@ -94,8 +94,26 @@
     });
   }
 
+  function setupQuickStart() {
+    var chips = document.querySelectorAll('.quickstart-chip[data-fill]');
+    if (chips.length === 0) {
+      return;
+    }
+    var input = document.getElementById('chat-message');
+    if (!input) {
+      return;
+    }
+    chips.forEach(function (chip) {
+      chip.addEventListener('click', function () {
+        input.value = chip.getAttribute('data-fill') || '';
+        input.focus();
+      });
+    });
+  }
+
   function init() {
     setupSendingState();
+    setupQuickStart();
     runWhenStable(applyScrollIntent);
   }
 

@@ -130,6 +130,16 @@ $plans = getChatPlans();
 $constraints = getChatConstraints();
 $selectedPlanId = getSelectedPlanId();
 $constraintsSummary = buildConstraintsSummary($constraints);
+$studyGoal = getStudyGoalState();
+$missingFields = missingStudyFields($studyGoal);
+$goalRows = studyGoalDisplayRows($studyGoal);
+$quickStarts = [
+    '統計検定2級を取りたい',
+    '基本情報を3か月で取りたい',
+    'TOEICを650点まで上げたい',
+    '週10時間で勉強したい',
+    '就活向けの資格を相談したい',
+];
 $scrollTarget = determineChatScrollTarget(
     $postAction,
     $error,
@@ -205,8 +215,13 @@ $scrollTarget = determineChatScrollTarget(
           <form class="chat-form" method="post">
             <?= csrfInput() ?>
             <input type="hidden" name="action" value="message">
-            <label class="form-label" for="chat-message">メッセージ</label>
-            <textarea class="form-input form-textarea chat-input" id="chat-message" name="message" rows="3" placeholder="例：基本情報の資格を2026年12月までに。必要時間120時間。平日夜がいい" required></textarea>
+            <label class="form-label" for="chat-message">取りたい資格や目標を入力してください</label>
+            <textarea class="form-input form-textarea chat-input" id="chat-message" name="message" rows="3" placeholder="例：統計検定2級を、今日から週8時間で勉強したい" required></textarea>
+            <div class="quickstart" aria-label="入力のヒント">
+              <?php foreach ($quickStarts as $qs): ?>
+                <button type="button" class="quickstart-chip" data-fill="<?= htmlspecialchars($qs, ENT_QUOTES, 'UTF-8') ?>"><?= htmlspecialchars($qs, ENT_QUOTES, 'UTF-8') ?></button>
+              <?php endforeach; ?>
+            </div>
             <button class="primary-btn" type="submit">送信</button>
           </form>
         </div>
@@ -216,19 +231,39 @@ $scrollTarget = determineChatScrollTarget(
         <?php endif; ?>
       </div>
 
-      <aside class="chat-side" aria-label="プランと予定候補">
+      <aside class="chat-side" aria-label="相談内容とプラン">
+        <div class="panel consult-panel">
+          <h2 class="plan-section-title">現在の相談内容</h2>
+          <dl class="consult-list">
+            <?php foreach ($goalRows as $row): ?>
+              <div class="consult-row">
+                <dt><?= htmlspecialchars($row['label'], ENT_QUOTES, 'UTF-8') ?></dt>
+                <dd><?= htmlspecialchars($row['value'], ENT_QUOTES, 'UTF-8') ?></dd>
+              </div>
+            <?php endforeach; ?>
+          </dl>
+          <?php if ($missingFields !== [] && $plans === []): ?>
+            <div class="missing-block">
+              <p class="missing-title">プラン作成に必要な情報</p>
+              <ul class="missing-list">
+                <?php foreach ($missingFields as $field): ?>
+                  <li><?= htmlspecialchars($field, ENT_QUOTES, 'UTF-8') ?></li>
+                <?php endforeach; ?>
+              </ul>
+            </div>
+          <?php endif; ?>
+        </div>
+
         <?php if ($plans !== []): ?>
           <div id="chat-plans" class="panel">
             <h2 class="plan-section-title">プランを選ぶ</h2>
-            <p class="plan-section-desc">ベースにしたいプランを選び、チャットで調整できます。</p>
+            <p class="plan-section-desc">A/B/Cはすべて同じ項目で比較できます。ベースを選び、チャットで調整できます。</p>
             <div class="plan-grid">
               <?php foreach ($plans as $plan): ?>
                 <?php
                 $planId = (string) ($plan['id'] ?? '');
-                $weeklyHours = calculatePlanWeeklyHours($plan['events'] ?? []);
-                $minHours = $constraints['min_hours_per_week'] ?? null;
-                $meets = planMeetsConstraint($plan['events'] ?? [], is_float($minHours) ? $minHours : null);
                 $isSelected = $selectedPlanId === $planId;
+                $fields = planCardFields($plan);
                 ?>
                 <div class="plan-card<?= $isSelected ? ' plan-card-selected' : '' ?>">
                   <div class="plan-card-header">
@@ -236,14 +271,19 @@ $scrollTarget = determineChatScrollTarget(
                     <h3 class="plan-name"><?= htmlspecialchars((string) ($plan['name'] ?? ''), ENT_QUOTES, 'UTF-8') ?></h3>
                     <span class="plan-selected-badge">✓ 選択中</span>
                   </div>
-                  <p class="plan-hours">週あたり <?= $weeklyHours ?> 時間</p>
-                  <?php if ($minHours !== null): ?>
-                    <span class="plan-status<?= $meets ? ' plan-status-ok' : ' plan-status-warn' ?>">
-                      <?= $meets ? '✓ 必要時間を確保' : '⚠ 週' . $minHours . '時間以上が推奨' ?>
-                    </span>
-                  <?php endif; ?>
-                  <p class="plan-count"><?= count($plan['events'] ?? []) ?>件の予定</p>
                   <p class="plan-summary"><?= htmlspecialchars((string) ($plan['summary'] ?? ''), ENT_QUOTES, 'UTF-8') ?></p>
+                  <?php if ($fields !== []): ?>
+                    <dl class="plan-fields">
+                      <?php foreach ($fields as $field): ?>
+                        <div class="plan-field<?= isset($field['status']) ? ' plan-field-' . $field['status'] : '' ?>">
+                          <dt><?= htmlspecialchars($field['label'], ENT_QUOTES, 'UTF-8') ?></dt>
+                          <dd><?= htmlspecialchars($field['value'], ENT_QUOTES, 'UTF-8') ?></dd>
+                        </div>
+                      <?php endforeach; ?>
+                    </dl>
+                  <?php else: ?>
+                    <p class="plan-count"><?= count($plan['events'] ?? []) ?>件の予定</p>
+                  <?php endif; ?>
                   <form method="post">
                     <?= csrfInput() ?>
                     <input type="hidden" name="action" value="select_plan">
@@ -259,11 +299,26 @@ $scrollTarget = determineChatScrollTarget(
         <?php endif; ?>
 
         <?php if ($proposedEvents !== []): ?>
+          <?php
+          $previewTotal = 0;
+          $previewDates = [];
+          foreach ($proposedEvents as $pe) {
+              $previewTotal += (int) ($pe['duration_minutes'] ?? 0);
+              $previewDates[] = (string) ($pe['date'] ?? '');
+          }
+          sort($previewDates);
+          ?>
           <div id="chat-proposed-events" class="panel">
             <h2 class="plan-section-title">
               <?= $selectedPlanId !== '' ? 'プラン' . htmlspecialchars($selectedPlanId, ENT_QUOTES, 'UTF-8') . ' の予定' : '提案された予定' ?>
             </h2>
-            <p class="plan-section-desc">内容を確認して、問題なければカレンダーに追加してください。</p>
+            <p class="plan-section-desc">登録前に内容を確認してください。問題なければ全期間まとめて追加します。</p>
+            <dl class="plan-preview">
+              <div class="plan-field"><dt>予定数</dt><dd><?= count($proposedEvents) ?>件</dd></div>
+              <div class="plan-field"><dt>合計学習時間</dt><dd><?= htmlspecialchars(formatMinutesAsHours($previewTotal), ENT_QUOTES, 'UTF-8') ?></dd></div>
+              <div class="plan-field"><dt>期間</dt><dd><?= htmlspecialchars(($previewDates[0] ?? '') . ' 〜 ' . ($previewDates[count($previewDates) - 1] ?? ''), ENT_QUOTES, 'UTF-8') ?></dd></div>
+            </dl>
+            <p class="plan-section-desc">最初の数件のプレビュー:</p>
             <ul class="event-list event-list-compact">
               <?php foreach (array_slice($proposedEvents, 0, 8) as $event): ?>
                 <li class="event-list-item">
@@ -309,12 +364,6 @@ $scrollTarget = determineChatScrollTarget(
           </div>
         <?php endif; ?>
 
-        <?php if ($plans === [] && $proposedEvents === []): ?>
-          <div class="plan-empty">
-            <p class="plan-empty-title">まだプランはありません</p>
-            <p class="plan-empty-text">会話を進めると、ここに3つのプラン候補が表示されます。やりたいこと・期間・頻度（資格なら必要時間と試験日）を伝えてみましょう。</p>
-          </div>
-        <?php endif; ?>
       </aside>
     </div>
 
