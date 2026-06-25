@@ -1,5 +1,8 @@
 public_html/config.php
+public_html/config.local.php
+/deploy/
 .env
+.env.local
 .env.*
 !.env.example
 .DS_Store

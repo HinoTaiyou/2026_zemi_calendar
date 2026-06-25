@@ -35,7 +35,7 @@ function getGeminiApiKey(): string
 
 function getGeminiModel(): string
 {
-    return appConfigValue('GEMINI_MODEL', 'gemini-3.5-flash');
+    return appConfigValue('GEMINI_MODEL', 'gemini-3.1-flash-lite');
 }
 
 function isGeminiDemoMode(): bool
