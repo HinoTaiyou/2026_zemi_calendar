@@ -46,6 +46,8 @@ declare(strict_types=1);
 return [
     'GEMINI_API_KEY' => '',
     'GEMINI_MODEL' => 'gemini-3.1-flash-lite',
+    'STORAGE_DRIVER' => 'pgsql',
+    'EVENT_STORAGE_PATH' => __DIR__ . '/data/events.json',
     'DB_HOST' => '',
     'DB_PORT' => '5432',
     'DB_USER' => '',

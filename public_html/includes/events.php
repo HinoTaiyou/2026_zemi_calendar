@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/validation.php';
+require_once __DIR__ . '/event_file_storage.php';
 
 class EventConflictException extends RuntimeException
 {
@@ -46,6 +47,10 @@ function mapEventRow(array $row): array
 
 function getEventById(int $id): ?array
 {
+    if (eventFileStorageEnabled()) {
+        return eventFileFindById($id);
+    }
+
     $row = dbFetchOne('SELECT * FROM events WHERE id = $1', [$id]);
 
     return $row ? mapEventRow($row) : null;
@@ -53,6 +58,10 @@ function getEventById(int $id): ?array
 
 function getEventsForDate(string $date): array
 {
+    if (eventFileStorageEnabled()) {
+        return eventFileEventsForDate($date);
+    }
+
     $rows = dbFetchAll(
         'SELECT * FROM events WHERE event_date = $1 ORDER BY event_time ASC',
         [$date]
@@ -65,6 +74,15 @@ function getEventsGroupedByDate(int $year, int $month): array
 {
     $start = sprintf('%04d-%02d-01', $year, $month);
     $end = sprintf('%04d-%02d-%02d', $year, $month, (int) date('t', mktime(0, 0, 0, $month, 1, $year)));
+
+    if (eventFileStorageEnabled()) {
+        $grouped = [];
+        foreach (eventFileEventsForRange($start, $end) as $event) {
+            $grouped[$event['date']][] = $event;
+        }
+
+        return $grouped;
+    }
 
     $rows = dbFetchAll(
         'SELECT * FROM events WHERE event_date BETWEEN $1 AND $2 ORDER BY event_date ASC, event_time ASC',
@@ -97,6 +115,25 @@ function addEvents(array $newEvents, bool $allowConflict = false): array
         if ($conflicts !== []) {
             throw new EventConflictException($conflicts);
         }
+    }
+
+    if (eventFileStorageEnabled()) {
+        $inserted = 0;
+        $skipped = 0;
+        foreach ($validatedEvents as $event) {
+            $eventId = insertEventRow($event);
+            if ($eventId > 0) {
+                $inserted++;
+            } else {
+                $skipped++;
+            }
+        }
+
+        return [
+            'inserted' => $inserted,
+            'skipped' => $skipped,
+            'total' => count($validatedEvents),
+        ];
     }
 
     $conn = getDb();
@@ -139,6 +176,19 @@ function insertEventRow(array $event): int
     $sourceType = $event['source_type'] ?? null;
     $sourceBatchId = $event['source_batch_id'] ?? null;
     $sourceLabel = $event['source_label'] ?? null;
+
+    if (eventFileStorageEnabled()) {
+        return eventFileInsertEvent([
+            'date' => $event['date'],
+            'time' => normalizeEventTime($event['time']),
+            'duration_minutes' => (int) $event['duration_minutes'],
+            'title' => $event['title'],
+            'ai_idempotency_key' => $idempotencyKey,
+            'source_type' => $sourceType,
+            'source_batch_id' => $sourceBatchId,
+            'source_label' => $sourceLabel,
+        ]);
+    }
 
     if ($idempotencyKey !== null) {
         $row = dbFetchOne(
@@ -220,6 +270,16 @@ function updateEvent(int $id, string $date, string $time, int $durationMinutes, 
         }
     }
 
+    if (eventFileStorageEnabled()) {
+        return eventFileUpdateEvent($id, [
+            'date' => $event['date'],
+            'time' => normalizeEventTime($event['time']),
+            'duration_minutes' => (int) $event['duration_minutes'],
+            'title' => $event['title'],
+            'ai_idempotency_key' => null,
+        ]);
+    }
+
     $result = dbQuery(
         'UPDATE events
          SET event_date = $1,
@@ -241,6 +301,10 @@ function updateEvent(int $id, string $date, string $time, int $durationMinutes, 
 
 function deleteEvent(int $id): bool
 {
+    if (eventFileStorageEnabled()) {
+        return eventFileDeleteEvent($id);
+    }
+
     $result = dbQuery('DELETE FROM events WHERE id = $1', [$id]);
 
     return pg_affected_rows($result) > 0;

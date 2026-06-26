@@ -29,7 +29,7 @@ function assertTest(string $name, bool $condition): void
 
 function clearTestEnv(): void
 {
-    foreach (['DB_HOST', 'DB_PORT', 'DB_NAME', 'DB_USER', 'DB_PASS', 'GEMINI_API_KEY', 'GEMINI_MODEL'] as $name) {
+    foreach (['DB_HOST', 'DB_PORT', 'DB_NAME', 'DB_USER', 'DB_PASS', 'GEMINI_API_KEY', 'GEMINI_MODEL', 'STORAGE_DRIVER', 'EVENT_STORAGE_PATH'] as $name) {
         putenv($name . '=');
     }
 }
@@ -557,6 +557,69 @@ assertTest('study batch id deterministic', studyBatchId('統計検定2級', 'B')
 assertTest('study batch id varies by plan', studyBatchId('統計検定2級', 'A') !== studyBatchId('統計検定2級', 'B'));
 assertTest('study batch id valid format', normalizeSourceBatchId(studyBatchId('統計検定2級', 'B')) === studyBatchId('統計検定2級', 'B'));
 assertTest('study batch label combines qual and plan', studyBatchLabel('統計検定2級', 'バランス') === '統計検定2級 ・ バランス');
+
+// File-backed event storage for servers without PostgreSQL credentials.
+$eventFile = sys_get_temp_dir() . '/calendar-events-' . bin2hex(random_bytes(4)) . '.json';
+$fileConfig = writeTempConfig([
+    'STORAGE_DRIVER' => 'file',
+    'EVENT_STORAGE_PATH' => $eventFile,
+    'GEMINI_API_KEY' => '',
+]);
+setAppConfigPathForTest($fileConfig);
+if (is_file($eventFile)) {
+    unlink($eventFile);
+}
+
+$fileId = createEvent('2026-07-02', '10:00', 30, 'ファイル保存テスト');
+assertTest('file storage creates event', $fileId === 1);
+assertTest('file storage fetches event by date', count(getEventsForDate('2026-07-02')) === 1);
+
+$conflictThrown = false;
+try {
+    createEvent('2026-07-02', '10:15', 30, '重複予定');
+} catch (EventConflictException $e) {
+    $conflictThrown = true;
+}
+assertTest('file storage detects conflicts', $conflictThrown);
+
+assertTest('file storage updates event', updateEvent($fileId, '2026-07-03', '11:00', 45, '更新済み'));
+assertTest('file storage fetches updated event', (getEventById($fileId)['title'] ?? '') === '更新済み');
+
+$fileSummary1 = addEvents([[
+    'date' => '2026-07-04',
+    'time' => '12:00',
+    'duration_minutes' => 60,
+    'title' => 'AI予定',
+    'ai_idempotency_key' => 'ai_file_test',
+    'source_type' => 'study_plan',
+    'source_batch_id' => 'spb_file',
+    'source_label' => 'ファイルプラン',
+]], false);
+$fileSummary2 = addEvents([[
+    'date' => '2026-07-04',
+    'time' => '12:00',
+    'duration_minutes' => 60,
+    'title' => 'AI予定',
+    'ai_idempotency_key' => 'ai_file_test',
+    'source_type' => 'study_plan',
+    'source_batch_id' => 'spb_file',
+    'source_label' => 'ファイルプラン',
+]], false);
+assertTest('file storage inserts idempotent event once', $fileSummary1['inserted'] === 1 && $fileSummary2['skipped'] === 1);
+
+$fileFilter = normalizeBulkFilter(['source' => 'study_plan', 'batch_id' => 'spb_file'], $beNow);
+$filePreview = previewBulkEvents($fileFilter);
+assertTest('file storage previews bulk events', $filePreview['count'] === 1 && ($filePreview['by_source']['study_plan'] ?? 0) === 1);
+assertTest('file storage lists study batches', count(listStudyBatches()) === 1);
+assertTest('file storage exports csv', str_contains(bulkCsvString($fileFilter), 'AI予定'));
+$fileDelete = deleteBulkEvents($fileFilter);
+assertTest('file storage bulk deletes', $fileDelete['deleted'] === 1 && countBulkEvents($fileFilter) === 0);
+assertTest('file storage deletes event', deleteEvent($fileId) && getEventById($fileId) === null);
+
+if (is_file($eventFile)) {
+    unlink($eventFile);
+}
+setAppConfigPathForTest($missingConfig);
 
 setAppNowForTest(null);
 

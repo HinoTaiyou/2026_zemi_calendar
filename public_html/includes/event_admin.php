@@ -218,6 +218,37 @@ function bulkFilterSummaryText(array $filter): string
 
 function previewBulkEvents(array $filter): array
 {
+    if (eventFileStorageEnabled()) {
+        $rows = eventFileFilterEvents($filter, appNow());
+        $bySource = [];
+        $byWeekday = [];
+        $totalMinutes = 0;
+
+        foreach ($rows as $event) {
+            $source = (string) ($event['source_type'] ?? 'unknown');
+            $bySource[$source] = ($bySource[$source] ?? 0) + 1;
+
+            $date = DateTimeImmutable::createFromFormat('!Y-m-d', (string) $event['date']);
+            if ($date !== false) {
+                $weekday = (int) $date->format('N');
+                $byWeekday[$weekday] = ($byWeekday[$weekday] ?? 0) + 1;
+            }
+            $totalMinutes += (int) $event['duration_minutes'];
+        }
+        ksort($bySource);
+        ksort($byWeekday);
+
+        return [
+            'count' => count($rows),
+            'first' => $rows[0]['date'] ?? null,
+            'last' => $rows[count($rows) - 1]['date'] ?? null,
+            'total_minutes' => $totalMinutes,
+            'by_source' => $bySource,
+            'by_weekday' => $byWeekday,
+            'rows' => array_slice($rows, 0, BULK_PREVIEW_ROWS),
+        ];
+    }
+
     [$where, $params] = buildBulkFilterWhere($filter, appNow());
 
     $agg = dbFetchOne(
@@ -263,6 +294,10 @@ function previewBulkEvents(array $filter): array
 
 function countBulkEvents(array $filter): int
 {
+    if (eventFileStorageEnabled()) {
+        return count(eventFileFilterEvents($filter, appNow()));
+    }
+
     [$where, $params] = buildBulkFilterWhere($filter, appNow());
     $row = dbFetchOne("SELECT COUNT(*) AS c FROM events WHERE {$where}", $params);
 
@@ -284,6 +319,10 @@ function deleteBulkEvents(array $filter): array
     }
     if ($count > BULK_DELETE_MAX) {
         throw new RuntimeException('対象が' . BULK_DELETE_MAX . '件を超えています。条件を絞り込んでください。');
+    }
+
+    if (eventFileStorageEnabled()) {
+        return ['deleted' => eventFileDeleteByFilter($filter, appNow())];
     }
 
     $conn = getDb();
@@ -311,6 +350,36 @@ function deleteBulkEvents(array $filter): array
 
 function listStudyBatches(): array
 {
+    if (eventFileStorageEnabled()) {
+        $groups = [];
+        foreach (eventFileAllEvents() as $event) {
+            if (($event['source_type'] ?? null) !== 'study_plan' || ($event['source_batch_id'] ?? null) === null) {
+                continue;
+            }
+
+            $id = (string) $event['source_batch_id'];
+            if (!isset($groups[$id])) {
+                $groups[$id] = [
+                    'id' => $id,
+                    'label' => (string) ($event['source_label'] ?? 'AI学習プラン'),
+                    'count' => 0,
+                    'first' => (string) $event['date'],
+                    'last' => (string) $event['date'],
+                ];
+            }
+
+            $groups[$id]['label'] = (string) ($event['source_label'] ?? $groups[$id]['label']);
+            $groups[$id]['count']++;
+            $groups[$id]['first'] = min($groups[$id]['first'], (string) $event['date']);
+            $groups[$id]['last'] = max($groups[$id]['last'], (string) $event['date']);
+        }
+
+        $rows = array_values($groups);
+        usort($rows, static fn(array $a, array $b): int => [$b['last'], $a['label']] <=> [$a['last'], $b['label']]);
+
+        return $rows;
+    }
+
     $rows = dbFetchAll(
         "SELECT source_batch_id AS id, MAX(source_label) AS label, COUNT(*) AS c,
                 MIN(event_date) AS f, MAX(event_date) AS l
@@ -349,16 +418,21 @@ function csvCell(string $value): string
 
 function bulkCsvString(array $filter): string
 {
-    [$where, $params] = buildBulkFilterWhere($filter, appNow());
-    $rows = dbFetchAll(
-        "SELECT * FROM events WHERE {$where} ORDER BY event_date ASC, event_time ASC LIMIT " . BULK_DELETE_MAX,
-        $params
-    );
+    if (eventFileStorageEnabled()) {
+        $events = array_slice(eventFileFilterEvents($filter, appNow()), 0, BULK_DELETE_MAX);
+    } else {
+        [$where, $params] = buildBulkFilterWhere($filter, appNow());
+        $rows = dbFetchAll(
+            "SELECT * FROM events WHERE {$where} ORDER BY event_date ASC, event_time ASC LIMIT " . BULK_DELETE_MAX,
+            $params
+        );
+        $events = array_map('mapEventRow', $rows);
+    }
 
     $columns = ['id', 'date', 'time', 'duration_minutes', 'title', 'source_type', 'source_label', 'source_batch_id'];
     $lines = [implode(',', $columns)];
 
-    foreach (array_map('mapEventRow', $rows) as $event) {
+    foreach ($events as $event) {
         $lines[] = implode(',', [
             csvCell((string) $event['id']),
             csvCell((string) $event['date']),

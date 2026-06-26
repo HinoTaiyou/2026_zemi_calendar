@@ -10,6 +10,10 @@ return [
     'GEMINI_API_KEY' => '',
     'GEMINI_MODEL' => 'gemini-3.1-flash-lite',
 
+    // Use 'pgsql' for PostgreSQL or 'file' for simple JSON file storage.
+    'STORAGE_DRIVER' => 'pgsql',
+    'EVENT_STORAGE_PATH' => __DIR__ . '/data/events.json',
+
     'DB_HOST' => 'localhost',
     'DB_PORT' => '5432',
     'DB_USER' => '',
