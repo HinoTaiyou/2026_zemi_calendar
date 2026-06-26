@@ -8,6 +8,7 @@ require_once __DIR__ . '/../public_html/includes/security.php';
 require_once __DIR__ . '/../public_html/includes/ai.php';
 require_once __DIR__ . '/../public_html/includes/db.php';
 require_once __DIR__ . '/../public_html/includes/chat_session.php';
+require_once __DIR__ . '/../public_html/includes/event_admin.php';
 
 $passed = 0;
 $failed = 0;
@@ -466,6 +467,97 @@ assertTest('AI turn merges goal into session', getStudyGoalState()['qualificatio
 setGeminiHttpClientForTest(null);
 putenv('GEMINI_API_KEY=');
 setStudyGoalState(studyGoalDefaults());
+setAppNowForTest(null);
+
+// ---------------------------------------------------------------------------
+// Bulk event management
+// ---------------------------------------------------------------------------
+setAppNowForTest(new DateTimeImmutable('2026-06-26 10:00', new DateTimeZone('Asia/Tokyo')));
+$beNow = appNow();
+
+// Filter normalization
+$nf = normalizeBulkFilter([
+    'start_date' => '2026-07-01', 'end_date' => '2026-09-30',
+    'weekdays' => ['1', '3', '3', '9', '0'], 'keyword' => '  統計  ',
+    'source' => 'study_plan', 'future_only' => '1',
+], $beNow);
+assertTest('bulk filter keeps valid date range', $nf['start_date'] === '2026-07-01' && $nf['end_date'] === '2026-09-30');
+assertTest('bulk filter dedupes/sorts/validates weekdays', $nf['weekdays'] === [1, 3]);
+assertTest('bulk filter trims keyword', $nf['keyword'] === '統計');
+assertTest('bulk filter keeps valid source', $nf['source'] === 'study_plan');
+assertTest('bulk filter parses future_only', $nf['future_only'] === true);
+assertTest('bulk filter drops invalid date', normalizeBulkFilter(['start_date' => '2026-13-40'], $beNow)['start_date'] === null);
+assertTest('bulk filter drops invalid source to any', normalizeBulkFilter(['source' => 'bogus'], $beNow)['source'] === 'any');
+assertTest('bulk filter caps keyword length', mb_strlen(normalizeBulkFilter(['keyword' => str_repeat('あ', 250)], $beNow)['keyword']) === BULK_KEYWORD_MAX_LENGTH);
+
+// Empty-filter rejection
+assertTest('empty bulk filter detected', isBulkFilterEmpty(bulkFilterDefaults()));
+assertTest('non-empty bulk filter detected', !isBulkFilterEmpty($nf));
+assertTest('future_only alone is not empty', !isBulkFilterEmpty(normalizeBulkFilter(['future_only' => '1'], $beNow)));
+
+// WHERE building
+[$wAll, $pAll] = buildBulkFilterWhere($nf, $beNow);
+assertTest('where has placeholders for dates', str_contains($wAll, 'event_date >= $1') && str_contains($wAll, 'event_date <= $2'));
+assertTest('where future_only adds today param', in_array('2026-06-26', $pAll, true));
+assertTest('where weekdays use integer literals', str_contains($wAll, 'EXTRACT(ISODOW FROM event_date)::int IN (1,3)'));
+assertTest('where keyword uses ILIKE ESCAPE', str_contains($wAll, "title ILIKE") && str_contains($wAll, "ESCAPE '\\'"));
+assertTest('where source equality param present', in_array('study_plan', $pAll, true));
+[$wUnknown] = buildBulkFilterWhere(normalizeBulkFilter(['source' => 'unknown'], $beNow), $beNow);
+assertTest('unknown source maps to IS NULL', str_contains($wUnknown, 'source_type IS NULL'));
+[$wEmpty] = buildBulkFilterWhere(bulkFilterDefaults(), $beNow);
+assertTest('empty filter where matches nothing', $wEmpty === '1=0');
+[, $pKw] = buildBulkFilterWhere(normalizeBulkFilter(['keyword' => '10%_off'], $beNow), $beNow);
+assertTest('keyword wildcards are escaped', $pKw[0] === '%10\\%\\_off%');
+assertTest('escapeLikeTerm escapes backslash', escapeLikeTerm('a\\b%c_d') === 'a\\\\b\\%c\\_d');
+
+// Fingerprint
+assertTest('fingerprint stable', bulkFilterFingerprint($nf) === bulkFilterFingerprint($nf));
+$nf2 = $nf;
+$nf2['keyword'] = 'TOEIC';
+assertTest('fingerprint changes on edit', bulkFilterFingerprint($nf) !== bulkFilterFingerprint($nf2));
+
+// Strong confirm
+assertTest('strong confirm when >= threshold', bulkFilterRequiresStrongConfirm($nf, 50));
+assertTest('no strong confirm for bounded small range', !bulkFilterRequiresStrongConfirm($nf, 5));
+assertTest('strong confirm for unbounded keyword-only', bulkFilterRequiresStrongConfirm(normalizeBulkFilter(['keyword' => '統計'], $beNow), 5));
+assertTest('no strong confirm for specific batch small', !bulkFilterRequiresStrongConfirm(normalizeBulkFilter(['batch_id' => 'spb_abc'], $beNow), 5));
+assertTest('bulk delete cap is 500', BULK_DELETE_MAX === 500);
+
+// Summary text
+$summary = bulkFilterSummaryText($nf);
+assertTest('summary includes range', str_contains($summary, '2026-07-01〜2026-09-30'));
+assertTest('summary includes weekday names', str_contains($summary, '月・水'));
+assertTest('summary includes keyword', str_contains($summary, '「統計」'));
+assertTest('empty summary says none', bulkFilterSummaryText(bulkFilterDefaults()) === '条件なし');
+assertTest('source label maps study_plan', bulkSourceLabel('study_plan') === 'AI学習予定');
+
+// CSV escaping / injection guard
+assertTest('csv neutralizes formula', csvCell('=SUM(A1)') === "'=SUM(A1)");
+assertTest('csv neutralizes plus/at/minus', csvCell('+x') === "'+x" && csvCell('@y') === "'@y" && csvCell('-z') === "'-z");
+assertTest('csv quotes commas and quotes', csvCell('a,"b"') === '"a,""b"""');
+assertTest('csv quotes newlines', csvCell("line1\nline2") === "\"line1\nline2\"");
+assertTest('csv leaves plain text', csvCell('統計検定2級 学習') === '統計検定2級 学習');
+
+// Source metadata validation + batch ids
+$srcEvent = validateEventPayload([
+    'date' => '2026-07-01', 'time' => '19:00', 'duration_minutes' => 90, 'title' => 'x',
+    'source_type' => 'study_plan', 'source_batch_id' => 'spb_abc-123', 'source_label' => 'ラベル',
+]);
+assertTest('valid source_type kept', $srcEvent['source_type'] === 'study_plan');
+assertTest('valid source_batch_id kept', $srcEvent['source_batch_id'] === 'spb_abc-123');
+assertTest('source_label kept', $srcEvent['source_label'] === 'ラベル');
+$badSrc = validateEventPayload([
+    'date' => '2026-07-01', 'time' => '19:00', 'duration_minutes' => 90, 'title' => 'x',
+    'source_type' => 'hacker', 'source_batch_id' => 'bad id!', 'source_label' => '',
+]);
+assertTest('invalid source_type dropped', $badSrc['source_type'] === null);
+assertTest('invalid batch id dropped', $badSrc['source_batch_id'] === null);
+assertTest('empty source_label is null', $badSrc['source_label'] === null);
+assertTest('study batch id deterministic', studyBatchId('統計検定2級', 'B') === studyBatchId('統計検定2級', 'B'));
+assertTest('study batch id varies by plan', studyBatchId('統計検定2級', 'A') !== studyBatchId('統計検定2級', 'B'));
+assertTest('study batch id valid format', normalizeSourceBatchId(studyBatchId('統計検定2級', 'B')) === studyBatchId('統計検定2級', 'B'));
+assertTest('study batch label combines qual and plan', studyBatchLabel('統計検定2級', 'バランス') === '統計検定2級 ・ バランス');
+
 setAppNowForTest(null);
 
 echo "\nPassed: {$passed}, Failed: {$failed}\n";
