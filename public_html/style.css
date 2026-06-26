@@ -1234,6 +1234,105 @@ a {
   border-color: var(--color-info-border);
 }
 
+/* ------------------------------------------------- Bulk event management */
+
+.alert-link {
+  margin-left: var(--space-2);
+  color: var(--color-primary-strong);
+  font-weight: 700;
+  text-decoration: underline;
+}
+
+.weekday-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.weekday-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  font-size: 13px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.weekday-chip:focus-within {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 1px;
+}
+
+.weekday-chip input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--color-primary);
+}
+
+.source-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--color-surface-muted);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.danger-zone {
+  margin-top: var(--space-4);
+  padding: var(--space-4);
+  border: 1px solid var(--color-danger-border);
+  border-radius: var(--radius-md);
+  background: var(--color-danger-soft);
+}
+
+.danger-zone-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--color-danger);
+  margin-bottom: var(--space-1);
+}
+
+.danger-zone-text {
+  font-size: 13px;
+  color: var(--color-text);
+  margin-bottom: var(--space-3);
+  line-height: 1.6;
+}
+
+.danger-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 42px;
+  padding: 0 var(--space-5);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: var(--color-danger);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.danger-btn:hover {
+  background: #b62f2f;
+}
+
+.danger-btn:disabled {
+  background: var(--color-border-strong);
+  cursor: progress;
+}
+
 /* --------------------------------------------------------------- Responsive */
 
 @media (min-width: 1024px) {

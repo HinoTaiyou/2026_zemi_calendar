@@ -64,6 +64,7 @@ function dayUrl(int $year, int $month, int $day): string
       <nav class="site-nav" aria-label="メインナビゲーション">
         <a class="site-nav-link" href="index.php" aria-current="page">カレンダー</a>
         <a class="site-nav-link" href="chat.php">AIチャット</a>
+        <a class="site-nav-link" href="event_manage.php">予定を整理</a>
       </nav>
     </div>
   </header>
@@ -82,6 +83,13 @@ function dayUrl(int $year, int $month, int $day): string
     <?php if ($flash !== null): ?>
       <div class="alert alert-<?= htmlspecialchars($flash['type'], ENT_QUOTES, 'UTF-8') ?>" role="status">
         <?= htmlspecialchars($flash['message'], ENT_QUOTES, 'UTF-8') ?>
+        <?php
+        $lastBatch = $_SESSION['last_study_batch'] ?? null;
+        unset($_SESSION['last_study_batch']);
+        if (is_array($lastBatch) && ($lastBatch['id'] ?? '') !== ''):
+        ?>
+          <a class="alert-link" href="event_manage.php?batch=<?= htmlspecialchars((string) $lastBatch['id'], ENT_QUOTES, 'UTF-8') ?>">この学習プランの予定を管理</a>
+        <?php endif; ?>
       </div>
     <?php endif; ?>
 

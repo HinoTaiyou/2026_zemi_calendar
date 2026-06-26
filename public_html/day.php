@@ -51,6 +51,7 @@ try {
       <nav class="site-nav" aria-label="メインナビゲーション">
         <a class="site-nav-link" href="index.php" aria-current="page">カレンダー</a>
         <a class="site-nav-link" href="chat.php">AIチャット</a>
+        <a class="site-nav-link" href="event_manage.php">予定を整理</a>
       </nav>
     </div>
   </header>
@@ -89,6 +90,9 @@ try {
                 <div class="event-list-main">
                   <span class="event-list-time"><?= htmlspecialchars(formatEventTime($event), ENT_QUOTES, 'UTF-8') ?></span>
                   <span class="event-list-title"><?= htmlspecialchars((string) ($event['title'] ?? ''), ENT_QUOTES, 'UTF-8') ?></span>
+                  <?php if (($event['source_type'] ?? null) === 'study_plan' && ($event['source_label'] ?? '') !== ''): ?>
+                    <span class="source-chip"><?= htmlspecialchars((string) $event['source_label'], ENT_QUOTES, 'UTF-8') ?></span>
+                  <?php endif; ?>
                 </div>
                 <div class="event-actions">
                   <a class="text-btn" href="event_edit.php?id=<?= (int) $event['id'] ?>">編集</a>

@@ -110,6 +110,7 @@ $pageTitle = $isEdit ? '予定を編集' : '予定を追加';
       <nav class="site-nav" aria-label="メインナビゲーション">
         <a class="site-nav-link" href="index.php" aria-current="page">カレンダー</a>
         <a class="site-nav-link" href="chat.php">AIチャット</a>
+        <a class="site-nav-link" href="event_manage.php">予定を整理</a>
       </nav>
     </div>
   </header>
@@ -121,6 +122,13 @@ $pageTitle = $isEdit ? '予定を編集' : '予定を追加';
 
     <div class="panel">
       <h1 class="panel-title"><?= htmlspecialchars($pageTitle, ENT_QUOTES, 'UTF-8') ?></h1>
+
+      <?php if ($isEdit && is_array($event) && ($event['source_batch_id'] ?? null) !== null): ?>
+        <div class="constraints-banner">
+          <strong>学習プラン:</strong> <?= htmlspecialchars((string) ($event['source_label'] ?? 'AI学習プラン'), ENT_QUOTES, 'UTF-8') ?>
+          <a class="alert-link" href="event_manage.php?batch=<?= htmlspecialchars((string) $event['source_batch_id'], ENT_QUOTES, 'UTF-8') ?>">同じ学習プランの予定をまとめて管理</a>
+        </div>
+      <?php endif; ?>
 
       <?php if ($error !== ''): ?>
         <div class="alert alert-error" role="alert"><?= htmlspecialchars($error, ENT_QUOTES, 'UTF-8') ?></div>
