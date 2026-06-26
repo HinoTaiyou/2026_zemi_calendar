@@ -197,10 +197,7 @@ $scrollTarget = determineChatScrollTarget(
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AI相談 - カレンダー</title>
-  <link rel="stylesheet" href="style.css">
+  <?php renderSiteHead('AI相談 - カレンダー'); ?>
 </head>
 <body data-scroll-intent="<?= htmlspecialchars($scrollTarget, ENT_QUOTES, 'UTF-8') ?>">
   <?php renderSiteHeader('chat'); ?>

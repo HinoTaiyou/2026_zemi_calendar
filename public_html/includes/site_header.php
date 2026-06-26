@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+require_once __DIR__ . '/assets.php';
+
 /**
  * @param 'calendar'|'chat'|'manage'|'' $active
  */
@@ -71,7 +73,7 @@ function renderSiteHeader(string $active = ''): void
 function renderSiteUserScripts(): void
 {
     ?>
-  <script src="login/auth.js" defer></script>
-  <script src="assets/js/site_user.js" defer></script>
+  <script src="<?= htmlspecialchars(publicAssetUrl('login/auth.js'), ENT_QUOTES, 'UTF-8') ?>" defer></script>
+  <script src="<?= htmlspecialchars(publicAssetUrl('assets/js/site_user.js'), ENT_QUOTES, 'UTF-8') ?>" defer></script>
     <?php
 }

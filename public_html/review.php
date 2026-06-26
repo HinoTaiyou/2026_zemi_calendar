@@ -243,10 +243,7 @@ $planLabel = 'プラン' . ($plan['plan_id'] ?? '') . '「' . htmlspecialchars((
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>プラン振り返り - カレンダー</title>
-  <link rel="stylesheet" href="style.css">
+  <?php renderSiteHead('プラン振り返り - カレンダー'); ?>
 </head>
 <body>
   <?php renderSiteHeader('calendar'); ?>

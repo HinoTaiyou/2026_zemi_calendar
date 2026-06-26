@@ -96,10 +96,7 @@ $pageTitle = $isEdit ? '予定を編集' : '予定を追加';
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title><?= htmlspecialchars($pageTitle, ENT_QUOTES, 'UTF-8') ?> - カレンダー</title>
-  <link rel="stylesheet" href="style.css">
+  <?php renderSiteHead($pageTitle . ' - カレンダー'); ?>
 </head>
 <body>
   <?php renderSiteHeader('calendar'); ?>

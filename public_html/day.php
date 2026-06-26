@@ -37,10 +37,7 @@ try {
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title><?= $year ?>年<?= $month ?>月<?= $day ?>日 - カレンダー</title>
-  <link rel="stylesheet" href="style.css">
+  <?php renderSiteHead($year . '年' . $month . '月' . $day . '日 - カレンダー'); ?>
 </head>
 <body>
   <?php renderSiteHeader('calendar'); ?>
