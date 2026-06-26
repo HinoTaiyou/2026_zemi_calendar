@@ -4,6 +4,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/includes/bootstrap.php';
 require_once __DIR__ . '/includes/study_planner.php';
 require_once __DIR__ . '/includes/event_admin.php';
+require_once __DIR__ . '/includes/site_header.php';
 
 $now = appNow();
 $error = '';
@@ -153,19 +154,7 @@ $presets = [
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <header class="site-header">
-    <div class="site-header-inner">
-      <a class="site-brand" href="index.php">
-        <span class="site-brand-mark">C</span>
-        <span>Calm Focus Calendar</span>
-      </a>
-      <nav class="site-nav" aria-label="メインナビゲーション">
-        <a class="site-nav-link" href="index.php">カレンダー</a>
-        <a class="site-nav-link" href="chat.php">AIチャット</a>
-        <a class="site-nav-link" href="event_manage.php" aria-current="page">予定を整理</a>
-      </nav>
-    </div>
-  </header>
+  <?php renderSiteHeader('manage'); ?>
 
   <main class="app">
     <div class="page-head">
@@ -316,5 +305,6 @@ $presets = [
       </div>
     <?php endif; ?>
   </main>
+  <?php renderSiteUserScripts(); ?>
 </body>
 </html>

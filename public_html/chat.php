@@ -6,6 +6,7 @@ require_once __DIR__ . '/includes/plans.php';
 require_once __DIR__ . '/includes/plan_constraints.php';
 require_once __DIR__ . '/includes/ai.php';
 require_once __DIR__ . '/includes/chat_session.php';
+require_once __DIR__ . '/includes/site_header.php';
 
 $error = '';
 $conflicts = [];
@@ -202,19 +203,7 @@ $scrollTarget = determineChatScrollTarget(
   <link rel="stylesheet" href="style.css">
 </head>
 <body data-scroll-intent="<?= htmlspecialchars($scrollTarget, ENT_QUOTES, 'UTF-8') ?>">
-  <header class="site-header">
-    <div class="site-header-inner">
-      <a class="site-brand" href="index.php">
-        <span class="site-brand-mark">C</span>
-        <span>Calm Focus Calendar</span>
-      </a>
-      <nav class="site-nav" aria-label="メインナビゲーション">
-        <a class="site-nav-link" href="index.php">カレンダー</a>
-        <a class="site-nav-link" href="chat.php" aria-current="page">AIチャット</a>
-        <a class="site-nav-link" href="event_manage.php">予定を整理</a>
-      </nav>
-    </div>
-  </header>
+  <?php renderSiteHeader('chat'); ?>
 
   <main class="app app--wide">
     <div class="page-head">
@@ -420,5 +409,6 @@ $scrollTarget = determineChatScrollTarget(
     </form>
   </main>
   <script src="assets/js/chat.js" defer></script>
+  <?php renderSiteUserScripts(); ?>
 </body>
 </html>

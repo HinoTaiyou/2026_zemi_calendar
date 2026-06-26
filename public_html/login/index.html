@@ -1,0 +1,64 @@
+
+<!doctype html>
+<html lang="ja">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>ログイン | Calm Focus Calendar</title>
+		<link rel="stylesheet" href="../style.css" />
+		<link rel="stylesheet" href="login.css" />
+	</head>
+	<body>
+		<main class="page">
+			<section class="auth-panel auth-panel--narrow">
+				<span class="auth-eyebrow" style="background:rgba(20,184,166,0.12);color:var(--color-teal-strong);border:1px solid rgba(20,184,166,0.18)">Calm Focus Calendar</span>
+				<h2>ログイン</h2>
+				<p>登録済みのニックネームとパスワードを入力してください。</p>
+
+				<form id="loginForm" class="auth-form" autocomplete="on">
+					<div class="auth-field">
+						<label class="form-label" for="nickname">ニックネーム</label>
+						<input class="form-input" id="nickname" name="nickname" type="text" required maxlength="24" />
+					</div>
+					<div class="auth-field">
+						<label class="form-label" for="password">パスワード</label>
+						<input class="form-input" id="password" name="password" type="password" required minlength="4" />
+					</div>
+
+					<div id="loginMessage" class="auth-message" aria-live="polite"></div>
+
+					<div class="auth-actions">
+						<button class="primary-btn" type="submit">カレンダーへ</button>
+						<a class="secondary-btn" href="register.html">アカウントを新規作成</a>
+					</div>
+				</form>
+			</section>
+		</main>
+
+		<script src="auth.js"></script>
+		<script>
+			if (getCurrentUser()) {
+				window.location.href = "../index.php";
+			}
+
+			const form = document.getElementById("loginForm");
+			const message = document.getElementById("loginMessage");
+
+			form.addEventListener("submit", async (event) => {
+				event.preventDefault();
+
+				const formData = new FormData(form);
+				const nickname = String(formData.get("nickname") || "").trim();
+				const password = String(formData.get("password") || "");
+
+				try {
+					await loginAccount(nickname, password);
+					setMessage(message, "ログインしました。カレンダーへ移動します。", "success");
+					window.location.href = "../index.php";
+				} catch (error) {
+					setMessage(message, error.message, "error");
+				}
+			});
+		</script>
+	</body>
+</html>

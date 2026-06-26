@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>マイページ | Calm Focus Calendar</title>
+    <link rel="stylesheet" href="../style.css" />
+    <link rel="stylesheet" href="login.css" />
+  </head>
+  <body>
+    <main class="page">
+      <section class="auth-sidebar">
+        <div class="user-chip-btn" id="profile-chip">
+          <span class="user-avatar" id="avatar">M</span>
+          <span class="user-chip-text">
+            <span class="user-chip-label">ログイン中</span>
+            <span class="user-nickname" id="sidebarNickname">マイページ</span>
+          </span>
+        </div>
+
+        <div class="auth-menu">
+          <a class="primary-btn" href="../index.php">カレンダーへ</a>
+          <a class="secondary-btn" href="index.html">ログイン画面へ</a>
+          <a class="secondary-btn" href="register.html">新しいアカウントを作成</a>
+          <button class="secondary-btn" id="logoutButton" type="button">ログアウト</button>
+        </div>
+
+        <div class="auth-notice">保存済みアカウントはブラウザ内のデータベースで管理されています。</div>
+      </section>
+    </main>
+
+    <script src="auth.js"></script>
+    <script>
+      const user = ensureLoggedIn();
+      if (user) {
+        const initial = user.nickname.slice(0, 1).toUpperCase();
+        document.getElementById("sidebarNickname").textContent = user.nickname;
+        document.getElementById("avatar").textContent = initial;
+      }
+
+      document.getElementById("logoutButton").addEventListener("click", logout);
+    </script>
+  </body>
+</html>
