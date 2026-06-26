@@ -538,6 +538,30 @@ function summarizeOccurrences(array $occurrences, int $targetMinutes): array
     ];
 }
 
+/** Stable batch id for a (qualification, plan) registration, so re-registering
+ *  the same plan reuses the same group instead of creating a new one. */
+function studyBatchId(string $qualification, string $planId): string
+{
+    return 'spb_' . substr(hash('sha256', $qualification . '|' . $planId), 0, 60);
+}
+
+function studyBatchLabel(string $qualification, string $planName): string
+{
+    $qualification = trim($qualification);
+    $planName = trim($planName);
+    if ($qualification === '' && $planName === '') {
+        return 'AI学習プラン';
+    }
+    if ($planName === '') {
+        return $qualification;
+    }
+    if ($qualification === '') {
+        return $planName;
+    }
+
+    return $qualification . ' ・ ' . $planName;
+}
+
 function studyOccurrenceIdempotencyKey(string $planId, string $qualification, array $event): string
 {
     $material = implode('|', [

@@ -38,6 +38,9 @@ function mapEventRow(array $row): array
         'duration_minutes' => (int) $row['duration_minutes'],
         'title' => $row['title'],
         'ai_idempotency_key' => $row['ai_idempotency_key'] ?? null,
+        'source_type' => $row['source_type'] ?? null,
+        'source_batch_id' => $row['source_batch_id'] ?? null,
+        'source_label' => $row['source_label'] ?? null,
     ];
 }
 
@@ -133,11 +136,14 @@ function addEvents(array $newEvents, bool $allowConflict = false): array
 function insertEventRow(array $event): int
 {
     $idempotencyKey = $event['ai_idempotency_key'] ?? null;
+    $sourceType = $event['source_type'] ?? null;
+    $sourceBatchId = $event['source_batch_id'] ?? null;
+    $sourceLabel = $event['source_label'] ?? null;
 
     if ($idempotencyKey !== null) {
         $row = dbFetchOne(
-            'INSERT INTO events (event_date, event_time, duration_minutes, title, ai_idempotency_key)
-             VALUES ($1, $2, $3, $4, $5)
+            'INSERT INTO events (event_date, event_time, duration_minutes, title, ai_idempotency_key, source_type, source_batch_id, source_label)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
              ON CONFLICT (ai_idempotency_key) WHERE ai_idempotency_key IS NOT NULL
              DO NOTHING
              RETURNING id',
@@ -147,6 +153,9 @@ function insertEventRow(array $event): int
                 (int) $event['duration_minutes'],
                 $event['title'],
                 $idempotencyKey,
+                $sourceType,
+                $sourceBatchId,
+                $sourceLabel,
             ]
         );
 
@@ -154,14 +163,17 @@ function insertEventRow(array $event): int
     }
 
     $row = dbFetchOne(
-        'INSERT INTO events (event_date, event_time, duration_minutes, title)
-         VALUES ($1, $2, $3, $4)
+        'INSERT INTO events (event_date, event_time, duration_minutes, title, source_type, source_batch_id, source_label)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
          RETURNING id',
         [
             $event['date'],
             normalizeEventTime($event['time']),
             (int) $event['duration_minutes'],
             $event['title'],
+            $sourceType,
+            $sourceBatchId,
+            $sourceLabel,
         ]
     );
 
@@ -177,6 +189,9 @@ function createEvent(string $date, string $time, int $durationMinutes, string $t
 
     $event = $validation['event'];
     $event['ai_idempotency_key'] = null;
+    $event['source_type'] = 'manual';
+    $event['source_batch_id'] = null;
+    $event['source_label'] = null;
 
     if (!$allowConflict) {
         $conflicts = findEventConflicts($event);

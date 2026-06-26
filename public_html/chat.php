@@ -50,6 +50,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $error = '追加する予定案がありません。プランを選ぶか、AIと相談して予定案を作成してください。';
             } else {
                 try {
+                    // Tag this registration as a study-plan batch so the events can be
+                    // managed together later (filter by source_batch_id).
+                    $batchGoal = getStudyGoalState();
+                    $batchPlanId = getSelectedPlanId();
+                    $batchQual = (string) ($batchGoal['qualification_name'] ?? '');
+                    $batchInfo = null;
+                    if ($batchQual !== '' || $batchPlanId !== '') {
+                        $batchPlan = $batchPlanId !== '' ? findChatPlanById($batchPlanId) : null;
+                        $batchInfo = [
+                            'id' => studyBatchId($batchQual, $batchPlanId !== '' ? $batchPlanId : 'events'),
+                            'label' => studyBatchLabel($batchQual, (string) ($batchPlan['name'] ?? '')),
+                        ];
+                        foreach ($proposedEvents as $i => $pe) {
+                            $proposedEvents[$i]['source_type'] = 'study_plan';
+                            $proposedEvents[$i]['source_batch_id'] = $batchInfo['id'];
+                            $proposedEvents[$i]['source_label'] = $batchInfo['label'];
+                        }
+                    }
+
                     $validatedEvents = validateEventList($proposedEvents);
                     $ignoreKeys = array_values(array_filter(array_map(
                         static fn(array $event): ?string => $event['ai_idempotency_key'] ?? null,
@@ -62,6 +81,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     } else {
                         $summary = addEvents($validatedEvents, $allowConflict);
                         resetChatSession();
+
+                        if ($batchInfo !== null && $summary['inserted'] > 0) {
+                            $_SESSION['last_study_batch'] = $batchInfo;
+                        }
 
                         if ($summary['inserted'] > 0 && $summary['skipped'] > 0) {
                             setFlash('success', $summary['inserted'] . '件の予定を追加しました。'
@@ -166,6 +189,7 @@ $scrollTarget = determineChatScrollTarget(
       <nav class="site-nav" aria-label="メインナビゲーション">
         <a class="site-nav-link" href="index.php">カレンダー</a>
         <a class="site-nav-link" href="chat.php" aria-current="page">AIチャット</a>
+        <a class="site-nav-link" href="event_manage.php">予定を整理</a>
       </nav>
     </div>
   </header>

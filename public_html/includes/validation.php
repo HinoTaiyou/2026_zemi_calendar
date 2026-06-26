@@ -153,6 +153,9 @@ function eventStringLength(string $value): int
     return strlen($value);
 }
 
+const EVENT_SOURCE_TYPES = ['manual', 'study_plan', 'other_ai'];
+const EVENT_SOURCE_LABEL_MAX_LENGTH = 255;
+
 function normalizeAiIdempotencyKey(mixed $value): ?string
 {
     $key = scalarToStringOrNull($value);
@@ -165,6 +168,32 @@ function normalizeAiIdempotencyKey(mixed $value): ?string
     }
 
     return $key;
+}
+
+function normalizeSourceType(mixed $value): ?string
+{
+    $type = scalarToStringOrNull($value);
+    if ($type === null || !in_array($type, EVENT_SOURCE_TYPES, true)) {
+        return null;
+    }
+
+    return $type;
+}
+
+function normalizeSourceBatchId(mixed $value): ?string
+{
+    // Same character/length contract as the idempotency key.
+    return normalizeAiIdempotencyKey($value);
+}
+
+function normalizeSourceLabel(mixed $value): ?string
+{
+    $label = scalarToStringOrNull($value);
+    if ($label === null || $label === '') {
+        return null;
+    }
+
+    return mb_substr($label, 0, EVENT_SOURCE_LABEL_MAX_LENGTH);
 }
 
 function validateEventPayload(array $payload): array
@@ -182,6 +211,9 @@ function validateEventPayload(array $payload): array
 
     $event = $result['event'];
     $event['ai_idempotency_key'] = normalizeAiIdempotencyKey($payload['ai_idempotency_key'] ?? null);
+    $event['source_type'] = normalizeSourceType($payload['source_type'] ?? null);
+    $event['source_batch_id'] = normalizeSourceBatchId($payload['source_batch_id'] ?? null);
+    $event['source_label'] = normalizeSourceLabel($payload['source_label'] ?? null);
 
     return $event;
 }
