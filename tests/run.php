@@ -8,6 +8,7 @@ require_once __DIR__ . '/../public_html/includes/security.php';
 require_once __DIR__ . '/../public_html/includes/ai.php';
 require_once __DIR__ . '/../public_html/includes/db.php';
 require_once __DIR__ . '/../public_html/includes/chat_session.php';
+require_once __DIR__ . '/../public_html/includes/plans.php';
 require_once __DIR__ . '/../public_html/includes/event_admin.php';
 
 $passed = 0;
@@ -269,6 +270,36 @@ $tokenized = ensureChatEventTokens([
 assertTest('AI proposal token added', isset($tokenized[0]['ai_idempotency_key']));
 $retokenized = ensureChatEventTokens($tokenized);
 assertTest('AI proposal token stable', $tokenized[0]['ai_idempotency_key'] === $retokenized[0]['ai_idempotency_key']);
+
+assertTest('review tighten label', formatReviewAdjustmentLabel('tighten') === 'よりきつくする');
+assertTest('review loosen label', formatReviewAdjustmentLabel('loosen') === 'よりゆるくする');
+
+$reviewPlans = buildReviewDemoPlans(
+    ['plan_summary' => '学習'],
+    'tighten',
+    ['min_hours_per_week' => 5.0]
+);
+assertTest('review demo plans generated', count($reviewPlans) === 3);
+$tightenDuration = (int) ($reviewPlans[0]['events'][0]['duration_minutes'] ?? 0);
+$loosenPlans = buildReviewDemoPlans(
+    ['plan_summary' => '学習'],
+    'loosen',
+    ['min_hours_per_week' => 5.0]
+);
+$loosenDuration = (int) ($loosenPlans[0]['events'][0]['duration_minutes'] ?? 0);
+assertTest('review tighten increases duration', $tightenDuration > $loosenDuration);
+
+assertTest('follow up days default', getFollowUpDays() === 7);
+$earlyConfig = writeTempConfig(['ALLOW_EARLY_PLAN_REVIEW' => '1', 'FOLLOW_UP_DAYS' => '0']);
+setAppConfigPathForTest($earlyConfig);
+assertTest('early review config enabled', isEarlyPlanReviewAllowed());
+assertTest('follow up days zero from config', getFollowUpDays() === 0);
+
+assertTest('daily hours extracted', extractDailyHoursFromText('1日2時間くらい') === 2.0);
+assertTest('average daily hours extracted', extractDailyHoursFromText('平均２時間はできるかな') === 2.0);
+assertTest('required hours not confused with daily', extractRequiredHoursFromText('1日2時間') === null);
+assertTest('required hours not confused with average daily', extractRequiredHoursFromText('平均2時間はできる') === null);
+assertTest('required hours extracted', extractRequiredHoursFromText('必要時間120時間') === 120);
 
 assertTest('scroll intent empty on GET',
     determineChatScrollTarget('', '', false, false, false) === '');

@@ -793,3 +793,175 @@ function parseEventsFromAiResponse(string $content): array
 
     return $events;
 }
+
+function formatReviewAdjustmentLabel(string $adjustment): string
+{
+    return match ($adjustment) {
+        'tighten' => 'よりきつくする',
+        'loosen' => 'よりゆるくする',
+        default => '',
+    };
+}
+
+function chatWithReviewAssistant(
+    array $plan,
+    string $adjustment,
+    array $messages,
+    string $note = '',
+    float $weeklyHours = 0.0
+): array {
+    $constraints = $plan['constraints'] ?? [];
+    if (($constraints['min_hours_per_week'] ?? null) === null) {
+        $constraints['min_hours_per_week'] = calculateMinHoursPerWeek(
+            is_int($constraints['required_hours'] ?? null) ? $constraints['required_hours'] : null,
+            is_string($constraints['exam_date'] ?? null) ? $constraints['exam_date'] : null
+        );
+    }
+
+    if (getGeminiApiKey() !== '') {
+        $content = callGemini(getReviewSystemPrompt($plan, $adjustment, $constraints, $weeklyHours), $messages);
+        try {
+            return parseChatAssistantResponse($content, $constraints);
+        } catch (Throwable $e) {
+            $repaired = callGemini(
+                'You repair invalid schedule planning JSON. Output valid JSON only.',
+                [['role' => 'user', 'content' => buildJsonRepairPrompt($content)]],
+                0.1
+            );
+
+            return parseChatAssistantResponse($repaired, $constraints);
+        }
+    }
+
+    return reviewDemoResponse($plan, $adjustment, $messages, $constraints, $note);
+}
+
+function getReviewSystemPrompt(
+    array $plan,
+    string $adjustment,
+    array $constraints = [],
+    float $weeklyHours = 0.0
+): string {
+    $adjustmentLabel = formatReviewAdjustmentLabel($adjustment);
+    $planLabel = 'プラン' . ($plan['plan_id'] ?? '') . '「' . ($plan['plan_name'] ?? '') . '」';
+    $constraintBlock = '';
+    $minHours = $constraints['min_hours_per_week'] ?? null;
+    $requiredHours = $constraints['required_hours'] ?? null;
+    $examDate = $constraints['exam_date'] ?? null;
+
+    if ($minHours !== null) {
+        $constraintBlock = "\n\n【硬い条件（必ず守る）】\n";
+        if ($requiredHours !== null) {
+            $constraintBlock .= "- 必要学習時間: 約{$requiredHours}時間\n";
+        }
+        if ($examDate !== null) {
+            $constraintBlock .= "- 試験・目標日: {$examDate}\n";
+        }
+        if ($adjustment === 'loosen') {
+            $constraintBlock .= "- 各プランは週{$minHours}時間以上の学習時間を確保すること（これを下回らない）\n";
+        } else {
+            $constraintBlock .= "- 現在週{$weeklyHours}時間 → 各プランはこれより多い学習時間を確保すること\n";
+        }
+    }
+
+    $adjustmentRule = $adjustment === 'tighten'
+        ? '- ユーザーは「よりきつくする」を選んだ。週の学習時間・回数・1回の時間を増やす方向で調整する'
+        : '- ユーザーは「よりゆるくする」を選んだ。週の学習時間・回数・1回の時間を減らす方向で調整する';
+
+    return <<<PROMPT
+あなたは予定の振り返り相談相手です。日本語で親しみやすく会話してください。
+
+【振り返りの状況】
+- 採用プラン: {$planLabel}
+- 概要: {$plan['plan_summary']}
+- 採用日: {$plan['adopted_at']}
+- 現在の週あたり学習時間: 約{$weeklyHours}時間
+- 調整希望: {$adjustmentLabel}
+{$adjustmentRule}
+
+ルール:
+- まず短く共感し、調整方向に沿った**3つのプラン（A/B/C）** を提示する
+  - プランA: 平日集中型（調整後）
+  - プランB: 分散型（調整後）
+  - プランC: 週末中心型（調整後）
+- ユーザーが追加の修正を求めたら、プランを更新して再提示する
+- カレンダーへの登録はユーザーがボタンで行うので、「登録しました」とは言わない
+- 予定は09:00〜21:00の間
+- プラン提示時は本文で各プランの特徴を説明し、最後にJSONブロックを1つ付ける
+{$constraintBlock}
+
+JSON形式（プラン提示時のみ）:
+```json
+{"constraints":{"required_hours":120,"exam_date":"2026-12-01","daily_hours":2,"min_hours_per_week":5},"plans":[{"id":"A","name":"平日集中型","summary":"月水金 19:00","events":[{"date":"YYYY-MM-DD","time":"HH:MM","duration_minutes":30,"title":"タイトル"}]},{"id":"B","name":"分散型","summary":"毎日30分","events":[]},{"id":"C","name":"週末中心型","summary":"土日各2時間","events":[]}]}
+```
+
+- 修正時は1〜3プランを返してよい
+PROMPT;
+}
+
+function reviewDemoResponse(
+    array $plan,
+    string $adjustment,
+    array $messages,
+    array $constraints = [],
+    string $note = ''
+): array {
+    $userMessages = array_values(array_filter(
+        $messages,
+        static fn(array $message): bool => ($message['role'] ?? '') === 'user'
+    ));
+    $userCount = count($userMessages);
+
+    if ($userCount <= 1) {
+        $adjustmentLabel = formatReviewAdjustmentLabel($adjustment);
+
+        return [
+            'reply' => '振り返りありがとうございます。'
+                . $adjustmentLabel . '方向で3つのプランを用意しました。'
+                . '気に入ったものを選ぶか、修正点を教えてください。',
+            'events' => [],
+            'plans' => buildReviewDemoPlans($plan, $adjustment, $constraints),
+            'constraints' => $constraints,
+        ];
+    }
+
+    $combinedText = implode("\n", array_map(
+        static fn(array $message): string => (string) ($message['content'] ?? ''),
+        $userMessages
+    ));
+
+    $plans = buildReviewDemoPlans($plan, $adjustment, $constraints, $combinedText);
+    $adjustmentLabel = formatReviewAdjustmentLabel($adjustment);
+
+    return [
+        'reply' => $adjustmentLabel . '方向でプランを更新しました。内容を確認してください。',
+        'events' => [],
+        'plans' => $plans,
+        'constraints' => $constraints,
+    ];
+}
+
+function buildReviewDemoPlans(
+    array $plan,
+    string $adjustment,
+    array $constraints,
+    string $text = ''
+): array {
+    $basePlans = buildDemoPlans($text !== '' ? $text : ($plan['plan_summary'] ?? '学習'), $constraints);
+    $factor = $adjustment === 'tighten' ? 1.3 : 0.7;
+
+    foreach ($basePlans as $index => $basePlan) {
+        $events = [];
+        foreach ($basePlan['events'] ?? [] as $event) {
+            $duration = (int) ($event['duration_minutes'] ?? 30);
+            $newDuration = max(15, (int) round($duration * $factor));
+            $events[] = array_merge($event, ['duration_minutes' => $newDuration]);
+        }
+
+        $suffix = $adjustment === 'tighten' ? '（負荷アップ）' : '（負荷ダウン）';
+        $basePlans[$index]['events'] = $events;
+        $basePlans[$index]['summary'] = ($basePlan['summary'] ?? '') . $suffix;
+    }
+
+    return $basePlans;
+}

@@ -124,9 +124,65 @@ function resetChatSession(): void
         $_SESSION['chat_plans'],
         $_SESSION['chat_constraints'],
         $_SESSION['chat_selected_plan_id'],
-        $_SESSION['chat_study_goal']
+        $_SESSION['chat_study_goal'],
+        $_SESSION['chat_mode'],
+        $_SESSION['review_adopted_plan_id']
     );
     initChatSession();
+}
+
+function isReviewChatMode(): bool
+{
+    return ($_SESSION['chat_mode'] ?? '') === 'review';
+}
+
+function getReviewAdoptedPlanId(): int
+{
+    return (int) ($_SESSION['review_adopted_plan_id'] ?? 0);
+}
+
+function initReviewChatSession(int $adoptedPlanId): void
+{
+    $_SESSION['chat_mode'] = 'review';
+    $_SESSION['review_adopted_plan_id'] = $adoptedPlanId;
+}
+
+function startReviewChat(array $plan, string $adjustment, string $note, array $aiResult): void
+{
+    require_once __DIR__ . '/plans.php';
+
+    unset(
+        $_SESSION['chat_messages'],
+        $_SESSION['chat_proposed_events'],
+        $_SESSION['chat_plans'],
+        $_SESSION['chat_constraints'],
+        $_SESSION['chat_selected_plan_id']
+    );
+
+    initReviewChatSession((int) $plan['id']);
+
+    $intro = '1週間お疲れさまでした。'
+        . 'プラン' . ($plan['plan_id'] ?? '') . '「' . ($plan['plan_name'] ?? '') . '」'
+        . 'の振り返りですね。';
+
+    $_SESSION['chat_messages'] = [
+        [
+            'role' => 'assistant',
+            'content' => $intro,
+        ],
+        [
+            'role' => 'user',
+            'content' => buildReviewContextMessage($plan, $adjustment, $note),
+        ],
+        [
+            'role' => 'assistant',
+            'content' => (string) ($aiResult['reply'] ?? ''),
+        ],
+    ];
+    $_SESSION['chat_proposed_events'] = [];
+    $_SESSION['chat_plans'] = ensureChatPlanTokens($aiResult['plans'] ?? []);
+    $_SESSION['chat_constraints'] = $aiResult['constraints'] ?? ($plan['constraints'] ?? []);
+    $_SESSION['chat_selected_plan_id'] = '';
 }
 
 function countChatUserMessages(): int

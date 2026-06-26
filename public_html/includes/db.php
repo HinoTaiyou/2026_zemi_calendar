@@ -123,6 +123,7 @@ function getDb()
     }
 
     ensureEventsTable($conn);
+    ensureAdoptedPlansTable($conn);
 
     return $conn;
 }
@@ -183,6 +184,7 @@ function ensureEventsSchema($conn): void
         'CREATE UNIQUE INDEX IF NOT EXISTS idx_events_ai_idempotency_key
             ON events (ai_idempotency_key)
             WHERE ai_idempotency_key IS NOT NULL',
+        'ALTER TABLE events ADD COLUMN IF NOT EXISTS adopted_plan_id INT NULL',
     ];
 
     foreach ($statements as $sql) {
@@ -190,6 +192,63 @@ function ensureEventsSchema($conn): void
             throw new DatabaseException('DB_SQL_FAILED', dbUserMessage('DB_SQL_FAILED'));
         }
     }
+}
+
+function ensureAdoptedPlansTable($conn): void
+{
+    static $initialized = false;
+
+    if ($initialized) {
+        return;
+    }
+
+    $check = pg_query_params(
+        $conn,
+        'SELECT to_regclass($1) IS NOT NULL AS ok',
+        ['public.adopted_plans']
+    );
+
+    if ($check === false) {
+        throw new DatabaseException('DB_SQL_FAILED', dbUserMessage('DB_SQL_FAILED'));
+    }
+
+    $row = pg_fetch_assoc($check);
+    if (!$row || $row['ok'] !== 't') {
+        $createTable = <<<'SQL'
+CREATE TABLE adopted_plans (
+  id SERIAL PRIMARY KEY,
+  plan_id VARCHAR(10) NOT NULL,
+  plan_name VARCHAR(255) NOT NULL,
+  plan_summary TEXT,
+  constraints JSONB,
+  adopted_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  follow_up_due_at TIMESTAMP NOT NULL,
+  follow_up_done_at TIMESTAMP NULL,
+  review_fit VARCHAR(20) NULL,
+  review_adjustment VARCHAR(20) NULL,
+  review_note TEXT NULL,
+  status VARCHAR(20) NOT NULL DEFAULT 'active'
+)
+SQL;
+
+        if (pg_query($conn, $createTable) === false) {
+            throw new DatabaseException('DB_SQL_FAILED', dbUserMessage('DB_SQL_FAILED'));
+        }
+    }
+
+    $statements = [
+        'CREATE INDEX IF NOT EXISTS idx_adopted_plans_status_follow_up
+            ON adopted_plans (status, follow_up_due_at)',
+        'ALTER TABLE events ADD COLUMN IF NOT EXISTS adopted_plan_id INT NULL',
+    ];
+
+    foreach ($statements as $sql) {
+        if (pg_query($conn, $sql) === false) {
+            throw new DatabaseException('DB_SQL_FAILED', dbUserMessage('DB_SQL_FAILED'));
+        }
+    }
+
+    $initialized = true;
 }
 
 function dbQuery(string $sql, array $params = [])

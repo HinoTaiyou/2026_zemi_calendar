@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/includes/bootstrap.php';
+require_once __DIR__ . '/includes/plans.php';
 require_once __DIR__ . '/includes/plan_constraints.php';
 require_once __DIR__ . '/includes/ai.php';
 require_once __DIR__ . '/includes/chat_session.php';
@@ -79,7 +80,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     if ($conflicts !== [] && !$allowConflict) {
                         $error = '同じ時間帯に予定があります。内容を確認してください。';
                     } else {
-                        $summary = addEvents($validatedEvents, $allowConflict);
+                        $selectedPlanId = getSelectedPlanId();
+                        $selectedPlan = $selectedPlanId !== '' ? findChatPlanById($selectedPlanId) : null;
+                        $planId = $selectedPlanId !== '' ? $selectedPlanId : ($batchPlanId !== '' ? $batchPlanId : 'AI');
+                        $planName = (string) ($selectedPlan['name'] ?? ($batchPlan['name'] ?? '学習プラン'));
+                        $planSummary = (string) ($selectedPlan['summary'] ?? '');
+                        $constraints = getChatConstraints();
+                        if ($constraints === []) {
+                            $estimated = $batchGoal['estimated_hours'] ?? null;
+                            $recommendedHours = is_array($estimated) ? ($estimated['recommended'] ?? null) : null;
+                            $constraints = [
+                                'label' => $batchQual !== '' ? $batchQual : null,
+                                'required_hours' => is_numeric($batchGoal['selected_total_hours'] ?? null)
+                                    ? (int) $batchGoal['selected_total_hours']
+                                    : (is_numeric($recommendedHours) ? (int) $recommendedHours : null),
+                                'exam_date' => is_string($batchGoal['target_date'] ?? null)
+                                    ? $batchGoal['target_date']
+                                    : null,
+                            ];
+                        }
+
+                        $adoptedPlanId = createAdoptedPlan($planId, $planName, $planSummary, $constraints);
+                        $summary = addEvents($validatedEvents, $allowConflict, $adoptedPlanId);
                         resetChatSession();
 
                         if ($batchInfo !== null && $summary['inserted'] > 0) {

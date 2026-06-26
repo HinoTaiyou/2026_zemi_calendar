@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/includes/bootstrap.php';
+require_once __DIR__ . '/includes/plans.php';
 
 $year = readInputInt($_GET, 'year', (int) date('Y'));
 $month = readInputInt($_GET, 'month', (int) date('n'));
@@ -31,9 +32,13 @@ $todayDay = (int) date('j');
 
 $flash = getFlash();
 $eventsByDate = [];
+$reviewPlan = null;
+$reviewPlanIsDue = false;
 
 try {
     $eventsByDate = getEventsGroupedByDate($year, $month);
+    $reviewPlan = getPlanForReviewBanner();
+    $reviewPlanIsDue = $reviewPlan !== null && isPlanFollowUpDue($reviewPlan);
 } catch (Throwable $e) {
     $flash = ['type' => 'error', 'message' => 'データベースエラー: ' . publicDatabaseErrorMessage($e)];
 }
@@ -90,6 +95,23 @@ function dayUrl(int $year, int $month, int $day): string
         ?>
           <a class="alert-link" href="event_manage.php?batch=<?= htmlspecialchars((string) $lastBatch['id'], ENT_QUOTES, 'UTF-8') ?>">この学習プランの予定を管理</a>
         <?php endif; ?>
+      </div>
+    <?php endif; ?>
+
+    <?php if ($reviewPlan !== null): ?>
+      <div class="review-banner<?= $reviewPlanIsDue ? '' : ' review-banner-early' ?>">
+        <div class="review-banner-text">
+          <?php if ($reviewPlanIsDue): ?>
+            <strong>1週間経ちました。</strong>
+            プラン<?= htmlspecialchars((string) ($reviewPlan['plan_id'] ?? ''), ENT_QUOTES, 'UTF-8') ?>
+            「<?= htmlspecialchars((string) ($reviewPlan['plan_name'] ?? ''), ENT_QUOTES, 'UTF-8') ?>」は自分に合っていましたか？
+          <?php else: ?>
+            <strong>採用中のプランを振り返れます。</strong>
+            プラン<?= htmlspecialchars((string) ($reviewPlan['plan_id'] ?? ''), ENT_QUOTES, 'UTF-8') ?>
+            「<?= htmlspecialchars((string) ($reviewPlan['plan_name'] ?? ''), ENT_QUOTES, 'UTF-8') ?>」の確認（早期モード）
+          <?php endif; ?>
+        </div>
+        <a class="primary-btn primary-btn-small" href="review.php?id=<?= (int) $reviewPlan['id'] ?>">振り返り相談</a>
       </div>
     <?php endif; ?>
 

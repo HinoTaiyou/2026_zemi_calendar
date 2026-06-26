@@ -1437,3 +1437,68 @@ a {
     flex: 1 1 auto;
   }
 }
+
+.review-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  background: #fef7e0;
+  border: 1px solid #f9e5a8;
+  border-radius: 8px;
+  padding: 14px 16px;
+  margin-bottom: 16px;
+}
+
+.review-banner-text {
+  font-size: 14px;
+  color: #3c4043;
+  line-height: 1.6;
+}
+
+.review-banner-early {
+  background: #e8f0fe;
+  border-color: #d2e3fc;
+}
+
+.review-early-note {
+  margin-bottom: 16px;
+}
+
+.review-panel {
+  margin-bottom: 24px;
+}
+
+.review-plan-summary {
+  font-size: 14px;
+  color: #5f6368;
+  margin-bottom: 16px;
+  line-height: 1.6;
+}
+
+.review-choice-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.review-choice-btn {
+  min-width: 160px;
+}
+
+.review-adjust-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+@media (max-width: 640px) {
+  .review-banner {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .review-choice-btn {
+    width: 100%;
+  }
+}

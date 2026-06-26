@@ -19,4 +19,9 @@ return [
     'DB_USER' => '',
     'DB_PASS' => '',
     'DB_NAME' => '',
+
+    // Days after plan adoption before the follow-up review banner appears.
+    'FOLLOW_UP_DAYS' => '7',
+    // Set to '1' to allow plan review before FOLLOW_UP_DAYS elapses (for testing).
+    'ALLOW_EARLY_PLAN_REVIEW' => '0',
 ];

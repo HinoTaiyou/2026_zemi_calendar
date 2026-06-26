@@ -98,7 +98,7 @@ function getEventsGroupedByDate(int $year, int $month): array
     return $grouped;
 }
 
-function addEvents(array $newEvents, bool $allowConflict = false): array
+function addEvents(array $newEvents, bool $allowConflict = false, ?int $adoptedPlanId = null): array
 {
     if ($newEvents === []) {
         return ['inserted' => 0, 'skipped' => 0, 'total' => 0];
@@ -121,7 +121,7 @@ function addEvents(array $newEvents, bool $allowConflict = false): array
         $inserted = 0;
         $skipped = 0;
         foreach ($validatedEvents as $event) {
-            $eventId = insertEventRow($event);
+            $eventId = insertEventRow($event, $adoptedPlanId);
             if ($eventId > 0) {
                 $inserted++;
             } else {
@@ -147,7 +147,7 @@ function addEvents(array $newEvents, bool $allowConflict = false): array
         $skipped = 0;
 
         foreach ($validatedEvents as $event) {
-            $eventId = insertEventRow($event);
+            $eventId = insertEventRow($event, $adoptedPlanId);
             if ($eventId > 0) {
                 $inserted++;
             } else {
@@ -170,7 +170,7 @@ function addEvents(array $newEvents, bool $allowConflict = false): array
     }
 }
 
-function insertEventRow(array $event): int
+function insertEventRow(array $event, ?int $adoptedPlanId = null): int
 {
     $idempotencyKey = $event['ai_idempotency_key'] ?? null;
     $sourceType = $event['source_type'] ?? null;
@@ -192,8 +192,8 @@ function insertEventRow(array $event): int
 
     if ($idempotencyKey !== null) {
         $row = dbFetchOne(
-            'INSERT INTO events (event_date, event_time, duration_minutes, title, ai_idempotency_key, source_type, source_batch_id, source_label)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            'INSERT INTO events (event_date, event_time, duration_minutes, title, ai_idempotency_key, source_type, source_batch_id, source_label, adopted_plan_id)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
              ON CONFLICT (ai_idempotency_key) WHERE ai_idempotency_key IS NOT NULL
              DO NOTHING
              RETURNING id',
@@ -206,6 +206,7 @@ function insertEventRow(array $event): int
                 $sourceType,
                 $sourceBatchId,
                 $sourceLabel,
+                $adoptedPlanId,
             ]
         );
 
@@ -213,8 +214,8 @@ function insertEventRow(array $event): int
     }
 
     $row = dbFetchOne(
-        'INSERT INTO events (event_date, event_time, duration_minutes, title, source_type, source_batch_id, source_label)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)
+        'INSERT INTO events (event_date, event_time, duration_minutes, title, source_type, source_batch_id, source_label, adopted_plan_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
          RETURNING id',
         [
             $event['date'],
@@ -224,6 +225,7 @@ function insertEventRow(array $event): int
             $sourceType,
             $sourceBatchId,
             $sourceLabel,
+            $adoptedPlanId,
         ]
     );
 
