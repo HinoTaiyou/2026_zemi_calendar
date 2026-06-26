@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>マイページ | Zemi</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="page">
+      <section class="page-grid">
+        <aside class="sidebar">
+          <div class="user-chip">
+            <span class="avatar" id="avatar">M</span>
+            <span id="sidebarNickname">マイページ</span>
+          </div>
+
+          <div class="menu">
+            <a class="button" href="index.html">ログイン画面へ</a>
+            <a class="button-secondary" href="register.html">新しいアカウントを作成</a>
+            <button class="button-secondary" id="logoutButton" type="button">ログアウト</button>
+          </div>
+
+          <div class="notice">保存済みアカウントはブラウザ内のデータベースで管理されています。</div>
+        </aside>
+      </section>
+    </main>
+
+    <script src="auth.js"></script>
+    <script>
+      const user = ensureLoggedIn();
+      if (user) {
+        document.getElementById("sidebarNickname").textContent = user.nickname;
+        document.getElementById("avatar").textContent = user.nickname.slice(0, 1).toUpperCase();
+      }
+
+      document.getElementById("logoutButton").addEventListener("click", logout);
+    </script>
+  </body>
+</html>

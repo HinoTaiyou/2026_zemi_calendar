@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>新規登録 | Zemi</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="page">
+      <section class="card" style="width:min(100%,720px)">
+        <span class="eyebrow">Create Account</span>
+        <h2 style="margin-top:16px">アカウント新規作成</h2>
+        <p>登録したニックネームとパスワードは、このブラウザのデータベースに保存されます。</p>
+
+        <form id="registerForm" class="form" autocomplete="on">
+          <div class="field">
+            <label for="newNickname">ニックネーム</label>
+            <input id="newNickname" name="nickname" type="text" required maxlength="24" />
+          </div>
+          <div class="field">
+            <label for="newPassword">パスワード</label>
+            <input id="newPassword" name="password" type="password" required minlength="4" />
+          </div>
+
+          <div id="registerMessage" class="message" aria-live="polite"></div>
+
+          <div class="actions">
+            <button class="button" type="submit">登録する</button>
+            <a class="button-secondary" href="index.html">ログイン画面に戻る</a>
+          </div>
+        </form>
+      </section>
+    </main>
+
+    <script src="auth.js"></script>
+    <script>
+      const form = document.getElementById("registerForm");
+      const message = document.getElementById("registerMessage");
+
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+
+        const formData = new FormData(form);
+        const nickname = String(formData.get("nickname") || "").trim();
+        const password = String(formData.get("password") || "");
+
+        try {
+          await registerAccount(nickname, password);
+          setMessage(message, "登録が完了しました。ログイン画面へ移動します。", "success");
+          setTimeout(() => {
+            window.location.href = "index.html";
+          }, 700);
+        } catch (error) {
+          setMessage(message, error.message, "error");
+        }
+      });
+    </script>
+  </body>
+</html>
