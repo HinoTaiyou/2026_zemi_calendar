@@ -40,7 +40,7 @@ function renderSiteHeader(string $active = ''): void
               <span class="user-avatar user-avatar-large" id="user-avatar-menu" aria-hidden="true">?</span>
               <div>
                 <p class="site-user-dropdown-name" id="user-nickname-menu"></p>
-                <p class="site-user-dropdown-meta">Calm Focus Calendar</p>
+                <p class="site-user-dropdown-meta">学習カレンダー</p>
               </div>
             </div>
             <a class="site-user-dropdown-item" role="menuitem" href="login/home.html">マイページ</a>
@@ -53,7 +53,7 @@ function renderSiteHeader(string $active = ''): void
         </div>
         <a class="site-brand" href="index.php">
           <span class="site-brand-mark">C</span>
-          <span class="site-brand-name">Calm Focus Calendar</span>
+          <span class="site-brand-name">学習カレンダー</span>
         </a>
       </div>
       <nav class="site-nav" aria-label="メインナビゲーション">
