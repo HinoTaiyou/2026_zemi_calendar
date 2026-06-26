@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/validation.php';
+require_once __DIR__ . '/event_file_storage.php';
 
 class EventConflictException extends RuntimeException
 {
@@ -38,11 +39,18 @@ function mapEventRow(array $row): array
         'duration_minutes' => (int) $row['duration_minutes'],
         'title' => $row['title'],
         'ai_idempotency_key' => $row['ai_idempotency_key'] ?? null,
+        'source_type' => $row['source_type'] ?? null,
+        'source_batch_id' => $row['source_batch_id'] ?? null,
+        'source_label' => $row['source_label'] ?? null,
     ];
 }
 
 function getEventById(int $id): ?array
 {
+    if (eventFileStorageEnabled()) {
+        return eventFileFindById($id);
+    }
+
     $row = dbFetchOne('SELECT * FROM events WHERE id = $1', [$id]);
 
     return $row ? mapEventRow($row) : null;
@@ -50,6 +58,10 @@ function getEventById(int $id): ?array
 
 function getEventsForDate(string $date): array
 {
+    if (eventFileStorageEnabled()) {
+        return eventFileEventsForDate($date);
+    }
+
     $rows = dbFetchAll(
         'SELECT * FROM events WHERE event_date = $1 ORDER BY event_time ASC',
         [$date]
@@ -62,6 +74,15 @@ function getEventsGroupedByDate(int $year, int $month): array
 {
     $start = sprintf('%04d-%02d-01', $year, $month);
     $end = sprintf('%04d-%02d-%02d', $year, $month, (int) date('t', mktime(0, 0, 0, $month, 1, $year)));
+
+    if (eventFileStorageEnabled()) {
+        $grouped = [];
+        foreach (eventFileEventsForRange($start, $end) as $event) {
+            $grouped[$event['date']][] = $event;
+        }
+
+        return $grouped;
+    }
 
     $rows = dbFetchAll(
         'SELECT * FROM events WHERE event_date BETWEEN $1 AND $2 ORDER BY event_date ASC, event_time ASC',
@@ -94,6 +115,25 @@ function addEvents(array $newEvents, bool $allowConflict = false): array
         if ($conflicts !== []) {
             throw new EventConflictException($conflicts);
         }
+    }
+
+    if (eventFileStorageEnabled()) {
+        $inserted = 0;
+        $skipped = 0;
+        foreach ($validatedEvents as $event) {
+            $eventId = insertEventRow($event);
+            if ($eventId > 0) {
+                $inserted++;
+            } else {
+                $skipped++;
+            }
+        }
+
+        return [
+            'inserted' => $inserted,
+            'skipped' => $skipped,
+            'total' => count($validatedEvents),
+        ];
     }
 
     $conn = getDb();
@@ -133,11 +173,27 @@ function addEvents(array $newEvents, bool $allowConflict = false): array
 function insertEventRow(array $event): int
 {
     $idempotencyKey = $event['ai_idempotency_key'] ?? null;
+    $sourceType = $event['source_type'] ?? null;
+    $sourceBatchId = $event['source_batch_id'] ?? null;
+    $sourceLabel = $event['source_label'] ?? null;
+
+    if (eventFileStorageEnabled()) {
+        return eventFileInsertEvent([
+            'date' => $event['date'],
+            'time' => normalizeEventTime($event['time']),
+            'duration_minutes' => (int) $event['duration_minutes'],
+            'title' => $event['title'],
+            'ai_idempotency_key' => $idempotencyKey,
+            'source_type' => $sourceType,
+            'source_batch_id' => $sourceBatchId,
+            'source_label' => $sourceLabel,
+        ]);
+    }
 
     if ($idempotencyKey !== null) {
         $row = dbFetchOne(
-            'INSERT INTO events (event_date, event_time, duration_minutes, title, ai_idempotency_key)
-             VALUES ($1, $2, $3, $4, $5)
+            'INSERT INTO events (event_date, event_time, duration_minutes, title, ai_idempotency_key, source_type, source_batch_id, source_label)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
              ON CONFLICT (ai_idempotency_key) WHERE ai_idempotency_key IS NOT NULL
              DO NOTHING
              RETURNING id',
@@ -147,6 +203,9 @@ function insertEventRow(array $event): int
                 (int) $event['duration_minutes'],
                 $event['title'],
                 $idempotencyKey,
+                $sourceType,
+                $sourceBatchId,
+                $sourceLabel,
             ]
         );
 
@@ -154,14 +213,17 @@ function insertEventRow(array $event): int
     }
 
     $row = dbFetchOne(
-        'INSERT INTO events (event_date, event_time, duration_minutes, title)
-         VALUES ($1, $2, $3, $4)
+        'INSERT INTO events (event_date, event_time, duration_minutes, title, source_type, source_batch_id, source_label)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
          RETURNING id',
         [
             $event['date'],
             normalizeEventTime($event['time']),
             (int) $event['duration_minutes'],
             $event['title'],
+            $sourceType,
+            $sourceBatchId,
+            $sourceLabel,
         ]
     );
 
@@ -177,6 +239,9 @@ function createEvent(string $date, string $time, int $durationMinutes, string $t
 
     $event = $validation['event'];
     $event['ai_idempotency_key'] = null;
+    $event['source_type'] = 'manual';
+    $event['source_batch_id'] = null;
+    $event['source_label'] = null;
 
     if (!$allowConflict) {
         $conflicts = findEventConflicts($event);
@@ -205,6 +270,16 @@ function updateEvent(int $id, string $date, string $time, int $durationMinutes, 
         }
     }
 
+    if (eventFileStorageEnabled()) {
+        return eventFileUpdateEvent($id, [
+            'date' => $event['date'],
+            'time' => normalizeEventTime($event['time']),
+            'duration_minutes' => (int) $event['duration_minutes'],
+            'title' => $event['title'],
+            'ai_idempotency_key' => null,
+        ]);
+    }
+
     $result = dbQuery(
         'UPDATE events
          SET event_date = $1,
@@ -226,6 +301,10 @@ function updateEvent(int $id, string $date, string $time, int $durationMinutes, 
 
 function deleteEvent(int $id): bool
 {
+    if (eventFileStorageEnabled()) {
+        return eventFileDeleteEvent($id);
+    }
+
     $result = dbQuery('DELETE FROM events WHERE id = $1', [$id]);
 
     return pg_affected_rows($result) > 0;
@@ -382,14 +461,25 @@ function renderDayEventsHtml(array $events, int $limit = 2): string
 
     foreach ($shown as $event) {
         $title = htmlspecialchars((string) ($event['title'] ?? ''), ENT_QUOTES, 'UTF-8');
-        $html .= '<span class="day-event">' . $title . '</span>';
+        $time = htmlspecialchars((string) ($event['time'] ?? ''), ENT_QUOTES, 'UTF-8');
+        $full = trim($time . ' ' . (string) ($event['title'] ?? ''));
+        $label = $time !== '' ? $time . ' ' . $title : $title;
+        $html .= '<span class="day-event" title="' . htmlspecialchars($full, ENT_QUOTES, 'UTF-8') . '">' . $label . '</span>';
     }
 
     $remaining = count($events) - count($shown);
     if ($remaining > 0) {
-        $html .= '<span class="day-event-more">+' . $remaining . '</span>';
+        $html .= '<span class="day-event-more">+' . $remaining . '件</span>';
     }
 
+    $html .= '</div>';
+
+    // Compact dot row used on narrow screens (CSS toggles visibility).
+    $dotCount = min(count($events), 3);
+    $html .= '<div class="day-events-dots" aria-hidden="true">';
+    for ($i = 0; $i < $dotCount; $i++) {
+        $html .= '<span></span>';
+    }
     $html .= '</div>';
 
     return $html;

@@ -101,16 +101,37 @@ $pageTitle = $isEdit ? '予定を編集' : '予定を追加';
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <div class="app">
-    <header class="app-header">
+  <header class="site-header">
+    <div class="site-header-inner">
+      <a class="site-brand" href="index.php">
+        <span class="site-brand-mark">C</span>
+        <span>Calm Focus Calendar</span>
+      </a>
+      <nav class="site-nav" aria-label="メインナビゲーション">
+        <a class="site-nav-link" href="index.php" aria-current="page">カレンダー</a>
+        <a class="site-nav-link" href="chat.php">AIチャット</a>
+        <a class="site-nav-link" href="event_manage.php">予定を整理</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="app">
+    <div class="page-head">
       <a class="back-link" href="day.php?date=<?= htmlspecialchars($backDate, ENT_QUOTES, 'UTF-8') ?>">← 日付に戻る</a>
-    </header>
+    </div>
 
     <div class="panel">
       <h1 class="panel-title"><?= htmlspecialchars($pageTitle, ENT_QUOTES, 'UTF-8') ?></h1>
 
+      <?php if ($isEdit && is_array($event) && ($event['source_batch_id'] ?? null) !== null): ?>
+        <div class="constraints-banner">
+          <strong>学習プラン:</strong> <?= htmlspecialchars((string) ($event['source_label'] ?? 'AI学習プラン'), ENT_QUOTES, 'UTF-8') ?>
+          <a class="alert-link" href="event_manage.php?batch=<?= htmlspecialchars((string) $event['source_batch_id'], ENT_QUOTES, 'UTF-8') ?>">同じ学習プランの予定をまとめて管理</a>
+        </div>
+      <?php endif; ?>
+
       <?php if ($error !== ''): ?>
-        <div class="alert alert-error"><?= htmlspecialchars($error, ENT_QUOTES, 'UTF-8') ?></div>
+        <div class="alert alert-error" role="alert"><?= htmlspecialchars($error, ENT_QUOTES, 'UTF-8') ?></div>
       <?php endif; ?>
 
       <?php if ($conflicts !== []): ?>
@@ -135,19 +156,21 @@ $pageTitle = $isEdit ? '予定を編集' : '予定を追加';
           <input type="hidden" name="id" value="<?= $id ?>">
         <?php endif; ?>
 
-        <div class="form-row">
-          <label class="form-label" for="date">日付</label>
-          <input class="form-input" type="date" id="date" name="date" value="<?= htmlspecialchars($defaults['date'], ENT_QUOTES, 'UTF-8') ?>" required>
-        </div>
+        <div class="form-grid form-grid-3">
+          <div class="form-row">
+            <label class="form-label" for="date">日付</label>
+            <input class="form-input" type="date" id="date" name="date" value="<?= htmlspecialchars($defaults['date'], ENT_QUOTES, 'UTF-8') ?>" required>
+          </div>
 
-        <div class="form-row">
-          <label class="form-label" for="time">開始時刻</label>
-          <input class="form-input" type="time" id="time" name="time" value="<?= htmlspecialchars($defaults['time'], ENT_QUOTES, 'UTF-8') ?>" required>
-        </div>
+          <div class="form-row">
+            <label class="form-label" for="time">開始時刻</label>
+            <input class="form-input" type="time" id="time" name="time" value="<?= htmlspecialchars($defaults['time'], ENT_QUOTES, 'UTF-8') ?>" required>
+          </div>
 
-        <div class="form-row">
-          <label class="form-label" for="duration_minutes">所要時間（分）</label>
-          <input class="form-input" type="number" id="duration_minutes" name="duration_minutes" min="15" max="480" step="5" value="<?= htmlspecialchars($defaults['duration_minutes'], ENT_QUOTES, 'UTF-8') ?>" required>
+          <div class="form-row">
+            <label class="form-label" for="duration_minutes">所要時間（分）</label>
+            <input class="form-input" type="number" id="duration_minutes" name="duration_minutes" min="15" max="480" step="5" value="<?= htmlspecialchars($defaults['duration_minutes'], ENT_QUOTES, 'UTF-8') ?>" required>
+          </div>
         </div>
 
         <div class="form-row">
@@ -164,6 +187,6 @@ $pageTitle = $isEdit ? '予定を編集' : '予定を追加';
         </div>
       </form>
     </div>
-  </div>
+  </main>
 </body>
 </html>

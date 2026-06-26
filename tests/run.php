@@ -8,6 +8,7 @@ require_once __DIR__ . '/../public_html/includes/security.php';
 require_once __DIR__ . '/../public_html/includes/ai.php';
 require_once __DIR__ . '/../public_html/includes/db.php';
 require_once __DIR__ . '/../public_html/includes/chat_session.php';
+require_once __DIR__ . '/../public_html/includes/event_admin.php';
 
 $passed = 0;
 $failed = 0;
@@ -28,7 +29,7 @@ function assertTest(string $name, bool $condition): void
 
 function clearTestEnv(): void
 {
-    foreach (['DB_HOST', 'DB_PORT', 'DB_NAME', 'DB_USER', 'DB_PASS', 'GEMINI_API_KEY', 'GEMINI_MODEL'] as $name) {
+    foreach (['DB_HOST', 'DB_PORT', 'DB_NAME', 'DB_USER', 'DB_PASS', 'GEMINI_API_KEY', 'GEMINI_MODEL', 'STORAGE_DRIVER', 'EVENT_STORAGE_PATH'] as $name) {
         putenv($name . '=');
     }
 }
@@ -268,6 +269,359 @@ $tokenized = ensureChatEventTokens([
 assertTest('AI proposal token added', isset($tokenized[0]['ai_idempotency_key']));
 $retokenized = ensureChatEventTokens($tokenized);
 assertTest('AI proposal token stable', $tokenized[0]['ai_idempotency_key'] === $retokenized[0]['ai_idempotency_key']);
+
+assertTest('scroll intent empty on GET',
+    determineChatScrollTarget('', '', false, false, false) === '');
+assertTest('scroll intent empty on reset GET-equivalent',
+    determineChatScrollTarget('', 'ignored', true, true, true) === '');
+assertTest('scroll intent feedback on POST error',
+    determineChatScrollTarget('message', 'some error', false, false, false) === 'feedback');
+assertTest('scroll intent plans on new plans generated',
+    determineChatScrollTarget('message', '', true, false, true) === 'plans');
+assertTest('scroll intent events on new events',
+    determineChatScrollTarget('message', '', false, true, true) === 'events');
+assertTest('scroll intent latest-reply on plain reply',
+    determineChatScrollTarget('message', '', false, false, true) === 'latest-reply');
+assertTest('scroll intent empty when nothing happened',
+    determineChatScrollTarget('message', '', false, false, false) === '');
+assertTest('scroll intent events on select_plan',
+    determineChatScrollTarget('select_plan', '', false, true, false) === 'events');
+assertTest('scroll intent latest-reply not plans for reply only (past plans in session)',
+    determineChatScrollTarget('message', '', false, false, true) === 'latest-reply');
+assertTest('scroll intent feedback wins over plans generated',
+    determineChatScrollTarget('message', 'AI error', true, false, true) === 'feedback');
+assertTest('scroll intent plans wins over latest-reply when both',
+    determineChatScrollTarget('message', '', true, false, true) === 'plans');
+
+// ---------------------------------------------------------------------------
+// Qualification study planner
+// ---------------------------------------------------------------------------
+setAppNowForTest(new DateTimeImmutable('2026-06-25 10:00', new DateTimeZone('Asia/Tokyo')));
+$spNow = appNow();
+$spAvail = [
+    ['weekday' => 1, 'start' => '19:00', 'end' => '22:00'],
+    ['weekday' => 3, 'start' => '19:00', 'end' => '22:00'],
+    ['weekday' => 6, 'start' => '10:00', 'end' => '17:00'],
+];
+$spGoal = static function (array $patch) use ($spNow): array {
+    return mergeStudyGoal(studyGoalDefaults(), validateStudyGoalPatch($patch, $spNow));
+};
+
+// Current date / timezone
+assertTest('study now uses injected date', $spNow->format('Y-m-d') === '2026-06-25');
+assertTest('study now uses Asia/Tokyo', $spNow->getTimezone()->getName() === 'Asia/Tokyo');
+
+// Date validation / past-date rejection
+$pastPatch = validateStudyGoalPatch(['start_date' => '2025-01-01', 'target_date' => '2025-06-01'], $spNow);
+assertTest('past start_date rejected', !isset($pastPatch['start_date']));
+assertTest('past target_date rejected', !isset($pastPatch['target_date']));
+$badOrder = validateStudyGoalPatch(['start_date' => '2026-07-01', 'target_date' => '2026-06-30'], $spNow);
+assertTest('target before start dropped', isset($badOrder['start_date']) && !isset($badOrder['target_date']));
+$futureDates = validateStudyGoalPatch(['start_date' => '2026-07-01', 'target_date' => '2026-10-01'], $spNow);
+assertTest('future dates accepted', ($futureDates['start_date'] ?? '') === '2026-07-01' && ($futureDates['target_date'] ?? '') === '2026-10-01');
+
+// Window resolution
+$winToday = resolveStudyWindow($spGoal(['duration_months' => 1]), $spNow);
+assertTest('today-from start defaults to today', ($winToday['start'] ?? '') === '2026-06-25');
+$win3mo = resolveStudyWindow($spGoal(['duration_months' => 3]), $spNow);
+assertTest('3 months is a calendar month span', ($win3mo['end'] ?? '') === '2026-09-25');
+$winYear = resolveStudyWindow($spGoal(['duration_months' => 8]), $spNow);
+assertTest('window crosses the year boundary', ($winYear['end'] ?? '') === '2027-02-25');
+assertTest('window capped at 18 months', (resolveStudyWindow($spGoal(['duration_months' => 18]), $spNow)['end'] ?? '') === '2027-12-25');
+
+// Minutes accounting
+assertTest('15h converts to 900 minutes', studyTotalMinutes($spGoal(['selected_total_hours' => 15])) === 900);
+assertTest('weekly available minutes summed', weeklyAvailableMinutes($spAvail) === 780);
+
+// Full-range expansion — THE regression for "only the first week"
+$feasibleGoal = $spGoal([
+    'qualification_name' => '基本情報', 'goal_type' => 'pass_fail',
+    'selected_total_hours' => 100, 'duration_months' => 3,
+    'desired_weekly_hours' => 10, 'availability' => $spAvail,
+]);
+$feasiblePlans = buildStudyPlanOptions($feasibleGoal, $spNow);
+assertTest('study builds three plans', count($feasiblePlans) === 3);
+$planB = $feasiblePlans[1] ?? ['events' => [], 'stats' => []];
+$bEvents = $planB['events'];
+$bDates = array_column($bEvents, 'date');
+sort($bDates);
+$bMonths = array_unique(array_map(static fn(string $d): string => substr($d, 0, 7), $bDates));
+assertTest('expansion exceeds the first week', count($bEvents) > 3);
+assertTest('expansion spans multiple months', count($bMonths) >= 3);
+assertTest('expansion reaches the final month', ($bDates[count($bDates) - 1] ?? '') >= '2026-08-01');
+assertTest('no occurrence before the start date', ($bDates[0] ?? '') >= ($planB['stats']['start_date'] ?? '9999'));
+assertTest('no occurrence after the end date', ($bDates[count($bDates) - 1] ?? '') <= ($planB['stats']['end_date'] ?? '0000'));
+assertTest('feasible plan hits the exact total', ($planB['stats']['total_minutes'] ?? 0) === 6000);
+assertTest('feasible plan is marked feasible', ($planB['stats']['feasible'] ?? false) === true);
+assertTest('only available weekdays are used', array_reduce($bEvents, static function (bool $ok, array $e): bool {
+    $iso = (int) DateTimeImmutable::createFromFormat('!Y-m-d', $e['date'])->format('N');
+    return $ok && in_array($iso, [1, 3, 6], true);
+}, true));
+
+// Plan cards share the same fixed fields, always incl. weekday/time
+$labelsA = array_column(planCardFields($feasiblePlans[0]), 'label');
+$labelsC = array_column(planCardFields($feasiblePlans[2]), 'label');
+assertTest('A/B/C cards share fixed field order', $labelsA === $labelsC && $labelsA !== []);
+assertTest('plan card always carries weekday/time', ($feasiblePlans[0]['stats']['weekday_time_summary'] ?? '') !== '');
+
+// Shortfall vs feasible
+$shortGoal = $spGoal([
+    'qualification_name' => '統計検定2級', 'selected_total_hours' => 180,
+    'duration_months' => 3, 'desired_weekly_hours' => 15, 'availability' => $spAvail,
+]);
+$shortPlan = buildStudyPlanOptions($shortGoal, $spNow)[1] ?? ['stats' => []];
+assertTest('infeasible plan reports shortfall', ($shortPlan['stats']['feasible'] ?? true) === false && ($shortPlan['stats']['shortfall_minutes'] ?? 0) > 0);
+
+// Passed-today slot is skipped (now = 2026-06-25 10:00; Thu=weekday 4)
+$todayGoal = $spGoal([
+    'qualification_name' => 'x', 'selected_total_hours' => 20, 'duration_months' => 1,
+    'availability' => [
+        ['weekday' => 4, 'start' => '09:00', 'end' => '12:00'],
+        ['weekday' => 4, 'start' => '14:00', 'end' => '17:00'],
+    ],
+]);
+$todayEvents = buildStudyPlanOptions($todayGoal, $spNow)[0]['events'] ?? [];
+$firstOcc = $todayEvents[0] ?? ['date' => '', 'time' => ''];
+assertTest('passed slot today is skipped', !($firstOcc['date'] === '2026-06-25' && $firstOcc['time'] === '09:00'));
+assertTest('future slot today is kept', $firstOcc['date'] === '2026-06-25' && $firstOcc['time'] === '14:00');
+
+// Insufficient info → no selectable plans
+assertTest('no availability yields no plans', buildStudyPlanOptions($spGoal(['qualification_name' => 'x', 'selected_total_hours' => 50, 'duration_months' => 3]), $spNow) === []);
+assertTest('no plans until ready', !isStudyGoalReadyForPlans($spGoal(['qualification_name' => 'x']), $spNow));
+assertTest('missing fields listed when bare', in_array('学習できる曜日・時間帯', missingStudyFields($spGoal(['qualification_name' => 'x'])), true));
+
+// Event cap
+$capTemplate = [];
+for ($wd = 1; $wd <= 7; $wd++) {
+    $capTemplate[] = ['weekday' => $wd, 'start' => '19:00', 'duration_minutes' => 15];
+}
+$capped = expandTemplateAcrossRange($capTemplate, '2026-06-25', '2028-06-25', 1000000, $spNow, '学習');
+assertTest('expansion respects the 500-event cap', count($capped) === STUDY_MAX_EVENTS);
+
+// Deterministic idempotency key
+$keyEvent = ['date' => '2026-07-01', 'time' => '19:00', 'duration_minutes' => 90, 'title' => '統計 学習'];
+$k1 = studyOccurrenceIdempotencyKey('A', '統計', $keyEvent);
+$k2 = studyOccurrenceIdempotencyKey('A', '統計', $keyEvent);
+assertTest('idempotency key is deterministic', $k1 === $k2);
+assertTest('idempotency key is valid format', normalizeAiIdempotencyKey($k1) === $k1);
+assertTest('idempotency key varies by plan', studyOccurrenceIdempotencyKey('B', '統計', $keyEvent) !== $k1);
+
+// Structured JSON parsing (no live Gemini)
+$okJson = '{"reply":"こんにちは","action":"ask_missing_information","goal_patch":{"qualification_name":"統計検定2級","unknown_field":"x"}}';
+$parsedOk = parseStudyGoalResponse($okJson);
+assertTest('study JSON reply parsed', $parsedOk['reply'] === 'こんにちは');
+assertTest('study JSON action parsed', $parsedOk['action'] === 'ask_missing_information');
+assertTest('study JSON goal_patch parsed', ($parsedOk['goal_patch']['qualification_name'] ?? '') === '統計検定2級');
+assertTest('unknown patch field ignored on validate', !array_key_exists('unknown_field', validateStudyGoalPatch($parsedOk['goal_patch'], $spNow)));
+$fenced = "```json\n{$okJson}\n```";
+assertTest('study JSON fenced block parsed', parseStudyGoalResponse($fenced)['action'] === 'ask_missing_information');
+$noJson = parseStudyGoalResponse('ただのテキストです');
+assertTest('study no-JSON falls back to chat', $noJson['action'] === 'chat' && $noJson['goal_patch'] === []);
+$threwBrokenJson = false;
+try {
+    parseStudyGoalResponse('{"reply": "x", "action":');
+} catch (Throwable $e) {
+    $threwBrokenJson = true;
+}
+assertTest('study broken JSON throws for repair', $threwBrokenJson);
+assertTest('empty qualification name dropped', !array_key_exists('qualification_name', validateStudyGoalPatch(['qualification_name' => '  '], $spNow)));
+assertTest('score goal target parsed', (validateStudyGoalPatch(['goal_type' => 'score', 'target_score' => 650], $spNow)['target_score'] ?? 0) === 650);
+
+// End-to-end through the AI path with a fake client (no live Gemini)
+setStudyGoalState(studyGoalDefaults());
+putenv('GEMINI_API_KEY=fake-study-key');
+$studyResponse = json_encode([
+    'reply' => 'プランを用意しました',
+    'action' => 'ready_for_plan',
+    'goal_patch' => [
+        'qualification_name' => '統計検定2級',
+        'goal_type' => 'pass_fail',
+        'selected_total_hours' => 100,
+        'duration_months' => 3,
+        'desired_weekly_hours' => 10,
+        'start_date' => '2025-01-01', // past date from AI must be ignored
+        'availability' => [
+            ['weekday' => 1, 'start' => '19:00', 'end' => '22:00'],
+            ['weekday' => 3, 'start' => '19:00', 'end' => '22:00'],
+            ['weekday' => 6, 'start' => '10:00', 'end' => '17:00'],
+        ],
+    ],
+], JSON_UNESCAPED_UNICODE);
+setGeminiHttpClientForTest(static fn(): array => [
+    'http_code' => 200,
+    'body' => geminiTextBody($studyResponse),
+    'curl_errno' => 0,
+]);
+$turn = chatWithScheduleAssistant([['role' => 'user', 'content' => '統計検定2級を3か月で']]);
+assertTest('AI turn returns reply', $turn['reply'] === 'プランを用意しました');
+assertTest('AI turn builds three plans', count($turn['plans']) === 3);
+$allFuture = true;
+foreach ($turn['plans'][0]['events'] as $e) {
+    if ($e['date'] < '2026-06-25') {
+        $allFuture = false;
+        break;
+    }
+}
+assertTest('AI past start_date is ignored (no past events)', $allFuture);
+assertTest('AI turn merges goal into session', getStudyGoalState()['qualification_name'] === '統計検定2級');
+setGeminiHttpClientForTest(null);
+putenv('GEMINI_API_KEY=');
+setStudyGoalState(studyGoalDefaults());
+setAppNowForTest(null);
+
+// ---------------------------------------------------------------------------
+// Bulk event management
+// ---------------------------------------------------------------------------
+setAppNowForTest(new DateTimeImmutable('2026-06-26 10:00', new DateTimeZone('Asia/Tokyo')));
+$beNow = appNow();
+
+// Filter normalization
+$nf = normalizeBulkFilter([
+    'start_date' => '2026-07-01', 'end_date' => '2026-09-30',
+    'weekdays' => ['1', '3', '3', '9', '0'], 'keyword' => '  統計  ',
+    'source' => 'study_plan', 'future_only' => '1',
+], $beNow);
+assertTest('bulk filter keeps valid date range', $nf['start_date'] === '2026-07-01' && $nf['end_date'] === '2026-09-30');
+assertTest('bulk filter dedupes/sorts/validates weekdays', $nf['weekdays'] === [1, 3]);
+assertTest('bulk filter trims keyword', $nf['keyword'] === '統計');
+assertTest('bulk filter keeps valid source', $nf['source'] === 'study_plan');
+assertTest('bulk filter parses future_only', $nf['future_only'] === true);
+assertTest('bulk filter drops invalid date', normalizeBulkFilter(['start_date' => '2026-13-40'], $beNow)['start_date'] === null);
+assertTest('bulk filter drops invalid source to any', normalizeBulkFilter(['source' => 'bogus'], $beNow)['source'] === 'any');
+assertTest('bulk filter caps keyword length', mb_strlen(normalizeBulkFilter(['keyword' => str_repeat('あ', 250)], $beNow)['keyword']) === BULK_KEYWORD_MAX_LENGTH);
+
+// Empty-filter rejection
+assertTest('empty bulk filter detected', isBulkFilterEmpty(bulkFilterDefaults()));
+assertTest('non-empty bulk filter detected', !isBulkFilterEmpty($nf));
+assertTest('future_only alone is not empty', !isBulkFilterEmpty(normalizeBulkFilter(['future_only' => '1'], $beNow)));
+
+// WHERE building
+[$wAll, $pAll] = buildBulkFilterWhere($nf, $beNow);
+assertTest('where has placeholders for dates', str_contains($wAll, 'event_date >= $1') && str_contains($wAll, 'event_date <= $2'));
+assertTest('where future_only adds today param', in_array('2026-06-26', $pAll, true));
+assertTest('where weekdays use integer literals', str_contains($wAll, 'EXTRACT(ISODOW FROM event_date)::int IN (1,3)'));
+assertTest('where keyword uses ILIKE ESCAPE', str_contains($wAll, "title ILIKE") && str_contains($wAll, "ESCAPE '\\'"));
+assertTest('where source equality param present', in_array('study_plan', $pAll, true));
+[$wUnknown] = buildBulkFilterWhere(normalizeBulkFilter(['source' => 'unknown'], $beNow), $beNow);
+assertTest('unknown source maps to IS NULL', str_contains($wUnknown, 'source_type IS NULL'));
+[$wEmpty] = buildBulkFilterWhere(bulkFilterDefaults(), $beNow);
+assertTest('empty filter where matches nothing', $wEmpty === '1=0');
+[, $pKw] = buildBulkFilterWhere(normalizeBulkFilter(['keyword' => '10%_off'], $beNow), $beNow);
+assertTest('keyword wildcards are escaped', $pKw[0] === '%10\\%\\_off%');
+assertTest('escapeLikeTerm escapes backslash', escapeLikeTerm('a\\b%c_d') === 'a\\\\b\\%c\\_d');
+
+// Fingerprint
+assertTest('fingerprint stable', bulkFilterFingerprint($nf) === bulkFilterFingerprint($nf));
+$nf2 = $nf;
+$nf2['keyword'] = 'TOEIC';
+assertTest('fingerprint changes on edit', bulkFilterFingerprint($nf) !== bulkFilterFingerprint($nf2));
+
+// Strong confirm
+assertTest('strong confirm when >= threshold', bulkFilterRequiresStrongConfirm($nf, 50));
+assertTest('no strong confirm for bounded small range', !bulkFilterRequiresStrongConfirm($nf, 5));
+assertTest('strong confirm for unbounded keyword-only', bulkFilterRequiresStrongConfirm(normalizeBulkFilter(['keyword' => '統計'], $beNow), 5));
+assertTest('no strong confirm for specific batch small', !bulkFilterRequiresStrongConfirm(normalizeBulkFilter(['batch_id' => 'spb_abc'], $beNow), 5));
+assertTest('bulk delete cap is 500', BULK_DELETE_MAX === 500);
+
+// Summary text
+$summary = bulkFilterSummaryText($nf);
+assertTest('summary includes range', str_contains($summary, '2026-07-01〜2026-09-30'));
+assertTest('summary includes weekday names', str_contains($summary, '月・水'));
+assertTest('summary includes keyword', str_contains($summary, '「統計」'));
+assertTest('empty summary says none', bulkFilterSummaryText(bulkFilterDefaults()) === '条件なし');
+assertTest('source label maps study_plan', bulkSourceLabel('study_plan') === 'AI学習予定');
+
+// CSV escaping / injection guard
+assertTest('csv neutralizes formula', csvCell('=SUM(A1)') === "'=SUM(A1)");
+assertTest('csv neutralizes plus/at/minus', csvCell('+x') === "'+x" && csvCell('@y') === "'@y" && csvCell('-z') === "'-z");
+assertTest('csv quotes commas and quotes', csvCell('a,"b"') === '"a,""b"""');
+assertTest('csv quotes newlines', csvCell("line1\nline2") === "\"line1\nline2\"");
+assertTest('csv leaves plain text', csvCell('統計検定2級 学習') === '統計検定2級 学習');
+
+// Source metadata validation + batch ids
+$srcEvent = validateEventPayload([
+    'date' => '2026-07-01', 'time' => '19:00', 'duration_minutes' => 90, 'title' => 'x',
+    'source_type' => 'study_plan', 'source_batch_id' => 'spb_abc-123', 'source_label' => 'ラベル',
+]);
+assertTest('valid source_type kept', $srcEvent['source_type'] === 'study_plan');
+assertTest('valid source_batch_id kept', $srcEvent['source_batch_id'] === 'spb_abc-123');
+assertTest('source_label kept', $srcEvent['source_label'] === 'ラベル');
+$badSrc = validateEventPayload([
+    'date' => '2026-07-01', 'time' => '19:00', 'duration_minutes' => 90, 'title' => 'x',
+    'source_type' => 'hacker', 'source_batch_id' => 'bad id!', 'source_label' => '',
+]);
+assertTest('invalid source_type dropped', $badSrc['source_type'] === null);
+assertTest('invalid batch id dropped', $badSrc['source_batch_id'] === null);
+assertTest('empty source_label is null', $badSrc['source_label'] === null);
+assertTest('study batch id deterministic', studyBatchId('統計検定2級', 'B') === studyBatchId('統計検定2級', 'B'));
+assertTest('study batch id varies by plan', studyBatchId('統計検定2級', 'A') !== studyBatchId('統計検定2級', 'B'));
+assertTest('study batch id valid format', normalizeSourceBatchId(studyBatchId('統計検定2級', 'B')) === studyBatchId('統計検定2級', 'B'));
+assertTest('study batch label combines qual and plan', studyBatchLabel('統計検定2級', 'バランス') === '統計検定2級 ・ バランス');
+
+// File-backed event storage for servers without PostgreSQL credentials.
+$eventFile = sys_get_temp_dir() . '/calendar-events-' . bin2hex(random_bytes(4)) . '.json';
+$fileConfig = writeTempConfig([
+    'STORAGE_DRIVER' => 'file',
+    'EVENT_STORAGE_PATH' => $eventFile,
+    'GEMINI_API_KEY' => '',
+]);
+setAppConfigPathForTest($fileConfig);
+if (is_file($eventFile)) {
+    unlink($eventFile);
+}
+
+$fileId = createEvent('2026-07-02', '10:00', 30, 'ファイル保存テスト');
+assertTest('file storage creates event', $fileId === 1);
+assertTest('file storage fetches event by date', count(getEventsForDate('2026-07-02')) === 1);
+
+$conflictThrown = false;
+try {
+    createEvent('2026-07-02', '10:15', 30, '重複予定');
+} catch (EventConflictException $e) {
+    $conflictThrown = true;
+}
+assertTest('file storage detects conflicts', $conflictThrown);
+
+assertTest('file storage updates event', updateEvent($fileId, '2026-07-03', '11:00', 45, '更新済み'));
+assertTest('file storage fetches updated event', (getEventById($fileId)['title'] ?? '') === '更新済み');
+
+$fileSummary1 = addEvents([[
+    'date' => '2026-07-04',
+    'time' => '12:00',
+    'duration_minutes' => 60,
+    'title' => 'AI予定',
+    'ai_idempotency_key' => 'ai_file_test',
+    'source_type' => 'study_plan',
+    'source_batch_id' => 'spb_file',
+    'source_label' => 'ファイルプラン',
+]], false);
+$fileSummary2 = addEvents([[
+    'date' => '2026-07-04',
+    'time' => '12:00',
+    'duration_minutes' => 60,
+    'title' => 'AI予定',
+    'ai_idempotency_key' => 'ai_file_test',
+    'source_type' => 'study_plan',
+    'source_batch_id' => 'spb_file',
+    'source_label' => 'ファイルプラン',
+]], false);
+assertTest('file storage inserts idempotent event once', $fileSummary1['inserted'] === 1 && $fileSummary2['skipped'] === 1);
+
+$fileFilter = normalizeBulkFilter(['source' => 'study_plan', 'batch_id' => 'spb_file'], $beNow);
+$filePreview = previewBulkEvents($fileFilter);
+assertTest('file storage previews bulk events', $filePreview['count'] === 1 && ($filePreview['by_source']['study_plan'] ?? 0) === 1);
+assertTest('file storage lists study batches', count(listStudyBatches()) === 1);
+assertTest('file storage exports csv', str_contains(bulkCsvString($fileFilter), 'AI予定'));
+$fileDelete = deleteBulkEvents($fileFilter);
+assertTest('file storage bulk deletes', $fileDelete['deleted'] === 1 && countBulkEvents($fileFilter) === 0);
+assertTest('file storage deletes event', deleteEvent($fileId) && getEventById($fileId) === null);
+
+if (is_file($eventFile)) {
+    unlink($eventFile);
+}
+setAppConfigPathForTest($missingConfig);
+
+setAppNowForTest(null);
 
 echo "\nPassed: {$passed}, Failed: {$failed}\n";
 exit($failed === 0 ? 0 : 1);

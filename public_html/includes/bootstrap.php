@@ -12,7 +12,7 @@ if (!defined('GEMINI_API_KEY')) {
     define('GEMINI_API_KEY', appConfigValue('GEMINI_API_KEY'));
 }
 if (!defined('GEMINI_MODEL')) {
-    define('GEMINI_MODEL', appConfigValue('GEMINI_MODEL', 'gemini-3.5-flash'));
+    define('GEMINI_MODEL', appConfigValue('GEMINI_MODEL', 'gemini-3.1-flash-lite'));
 }
 if (!defined('DB_HOST')) {
     define('DB_HOST', appConfigValue('DB_HOST', 'localhost'));

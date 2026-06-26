@@ -32,6 +32,7 @@ function dbUserMessage(string $errorCode): string
         'DB_CONFIG_MISSING' => 'データベース設定が不足しています。管理者に確認してください。',
         'DB_EXTENSION_MISSING' => 'データベース機能が利用できません。管理者に確認してください。',
         'DB_CONNECTION_FAILED' => 'データベースに接続できませんでした。管理者に確認してください。',
+        'STORAGE_FILE_FAILED' => '予定データを保存できませんでした。管理者に確認してください。',
         default => 'データベース処理に失敗しました。',
     };
 }
@@ -54,6 +55,16 @@ function getDbConfig(): array
         'password' => appConfigValue('DB_PASS', '', false),
         'dbname' => appConfigValue('DB_NAME'),
     ];
+}
+
+function eventStorageDriver(): string
+{
+    return strtolower(appConfigValue('STORAGE_DRIVER', 'pgsql'));
+}
+
+function eventFileStorageEnabled(): bool
+{
+    return in_array(eventStorageDriver(), ['file', 'json'], true);
 }
 
 function getMissingDbConfigKeys(array $config): array

@@ -1,5 +1,9 @@
 public_html/config.php
+public_html/config.local.php
+/public_html/data/events.json
+/deploy/
 .env
+.env.local
 .env.*
 !.env.example
 .DS_Store

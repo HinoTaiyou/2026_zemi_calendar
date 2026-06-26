@@ -4,6 +4,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/app_config.php';
 require_once __DIR__ . '/plan_constraints.php';
 require_once __DIR__ . '/validation.php';
+require_once __DIR__ . '/study_planner.php';
 
 class GeminiApiException extends RuntimeException
 {
@@ -35,7 +36,7 @@ function getGeminiApiKey(): string
 
 function getGeminiModel(): string
 {
-    return appConfigValue('GEMINI_MODEL', 'gemini-3.5-flash');
+    return appConfigValue('GEMINI_MODEL', 'gemini-3.1-flash-lite');
 }
 
 function isGeminiDemoMode(): bool
@@ -401,72 +402,149 @@ function generateScheduleDemo(
     return $events;
 }
 
-function getChatSystemPrompt(array $constraints = []): string
+function getChatSystemPrompt(array $goal, DateTimeImmutable $now, array $missing = []): string
 {
-    $constraintBlock = '';
-    $minHours = $constraints['min_hours_per_week'] ?? null;
-    $requiredHours = $constraints['required_hours'] ?? null;
-    $examDate = $constraints['exam_date'] ?? null;
-
-    if ($minHours !== null) {
-        $constraintBlock = "\n\n【硬い条件（必ず守る）】\n";
-        if ($requiredHours !== null) {
-            $constraintBlock .= "- 必要学習時間: 約{$requiredHours}時間\n";
-        }
-        if ($examDate !== null) {
-            $constraintBlock .= "- 試験・目標日: {$examDate}\n";
-        }
-        $constraintBlock .= "- 各プランは週{$minHours}時間以上の学習時間を確保すること\n";
-        $constraintBlock .= "- この時間は削ってはいけない。資格・試験対策の最低ライン\n";
-    }
+    $dateContext = buildPlanningDateContext($now);
+    $goalJson = json_encode($goal, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT) ?: '{}';
+    $missingText = $missing === [] ? 'なし（必要なら微調整を確認）' : implode('、', $missing);
 
     return <<<PROMPT
-あなたは予定作成の相談相手です。日本語で親しみやすく会話してください。
+あなたは資格・目標の学習計画づくりを手伝うアシスタントです。日本語で親しみやすく会話してください。
 
-ルール:
-- 最初はユーザーの希望（やりたいこと、期間、頻度）をヒアリングする
-- 資格・試験の場合は必要時間と試験日を確認する
-- 情報が足りなければ、時間帯・曜日などを質問する
-- 十分な情報が集まったら、**3つのプラン（A/B/C）** を提示する
-  - プランA: 平日集中型
-  - プランB: 分散型（毎日コツコツ）
-  - プランC: 週末中心型
-- ユーザーが修正を求めたら、選ばれたプランを更新して再提示する
-- カレンダーへの登録はユーザーがボタンで行うので、「登録しました」とは言わない
-- 予定は09:00〜21:00の間
-- プラン提示時は本文で各プランの特徴を説明し、最後にJSONブロックを1つ付ける
-{$constraintBlock}
+【現在日時（必ずこれを基準にする）】
+{$dateContext}
 
-JSON形式（プラン提示時のみ）:
-```json
-{"constraints":{"required_hours":120,"exam_date":"2026-12-01","min_hours_per_week":5},"plans":[{"id":"A","name":"平日集中型","summary":"月水金 19:00","events":[{"date":"YYYY-MM-DD","time":"HH:MM","duration_minutes":30,"title":"タイトル"}]},{"id":"B","name":"分散型","summary":"毎日30分","events":[]},{"id":"C","name":"週末中心型","summary":"土日各2時間","events":[]}]}
-```
+重要な日付ルール:
+- 新しい学習計画では、今日より前の日付を提案しない。
+- 「今日」「明日」「来週」「3か月」などの相対表現は、上の現在日時とAsia/Tokyoを基準に解釈する。
+- 日付は必ず YYYY-MM-DD、時刻は必ず HH:MM で返す。
 
-- まだ相談中で案がないときはJSONブロックを付けない
-- 修正時は1〜3プランを返してよい
+あなたの役割:
+- ユーザーの目的（取りたい資格・目標スコアなど）を理解し、構造化する。
+- 一般的な学習時間の「目安（範囲）」を推定し、前提も添える（公式値とは言わない）。
+- 不足情報は1回につき最大2つまで、やさしく質問する。
+- 学習可能な曜日・時間帯を確認する。曖昧なら候補を提案して確認する。
+- 資格が未定なら、分野を絞る質問から始める（候補を大量に並べない）。
+
+あなたがやらないこと（PHP側が担当）:
+- 全期間の予定日を1件ずつ列挙しない。
+- 週数計算・曜日の実日付への展開・合計時間の最終計算・カレンダー登録はしない。
+
+現在わかっている学習目標(JSON):
+{$goalJson}
+
+まだ不足している可能性がある情報: {$missingText}
+
+【出力形式】必ず次のJSONオブジェクト「だけ」を返す（前後に文章やコードフェンス以外を付けない）:
+{
+  "reply": "ユーザーへ表示する自然な日本語メッセージ",
+  "action": "ask_missing_information | propose_estimate | ready_for_plan | chat",
+  "goal_patch": {
+    "qualification_name": null,
+    "qualification_level": null,
+    "goal_type": "pass_fail | score | undecided",
+    "current_level": null,
+    "current_score": null,
+    "target_score": null,
+    "estimated_hours": {"min": null, "max": null, "recommended": null, "source": "ai", "confidence": "low|medium|high", "assumptions": []},
+    "selected_total_hours": null,
+    "start_date": null,
+    "target_date": null,
+    "duration_months": null,
+    "desired_weekly_hours": null,
+    "weekly_hours_mode": "desired | maximum | minimum | unknown",
+    "availability": [{"weekday": 1, "start": "19:00", "end": "22:00"}],
+    "preferred_session_minutes": null
+  }
+}
+
+goal_patch のルール:
+- 今回新しくわかった項目だけ入れる。不明な項目は null（または省略）。
+- weekday は ISO（1=月曜, 7=日曜）。
+- availability は確定したものだけ入れる。曖昧なときは reply で確認し、availability は空のままにする。
+- 推定時間は estimated_hours に範囲で入れ、selected_total_hours はユーザーが合意した時だけ入れる。
 PROMPT;
+}
+
+function parseStudyGoalResponse(string $content): array
+{
+    $json = null;
+    if (preg_match('/```(?:json)?\s*([\s\S]*?)\s*```/i', $content, $matches)) {
+        $json = trim($matches[1]);
+    } elseif (str_contains($content, '{')) {
+        $json = extractJsonCandidate($content);
+    }
+
+    if ($json === null) {
+        $reply = trim($content);
+        return [
+            'reply' => $reply !== '' ? $reply : 'もう少し詳しく教えてください。',
+            'action' => 'chat',
+            'goal_patch' => [],
+        ];
+    }
+
+    $data = decodeJsonObject($json);
+
+    $reply = scalarToStringOrNull($data['reply'] ?? null);
+    $action = scalarToStringOrNull($data['action'] ?? null);
+    $patch = is_array($data['goal_patch'] ?? null) ? $data['goal_patch'] : [];
+
+    return [
+        'reply' => ($reply !== null && $reply !== '') ? $reply : 'ご相談ありがとうございます。続けてお聞かせください。',
+        'action' => $action ?? 'chat',
+        'goal_patch' => $patch,
+    ];
+}
+
+function finalizeStudyTurn(array $goal, string $reply, DateTimeImmutable $now): array
+{
+    $missing = missingStudyFields($goal);
+    $plans = [];
+    if (isStudyGoalReadyForPlans($goal, $now)) {
+        $plans = buildStudyPlanOptions($goal, $now);
+    }
+
+    return [
+        'reply' => $reply,
+        'events' => [],
+        'plans' => $plans,
+        'constraints' => [],
+        'goal' => $goal,
+        'missing' => $missing,
+    ];
 }
 
 function chatWithScheduleAssistant(array $messages): array
 {
-    $constraints = extractConstraintsFromMessages($messages);
+    $now = appNow();
+    $goal = getStudyGoalState();
 
     if (getGeminiApiKey() !== '') {
-        $content = callGemini(getChatSystemPrompt($constraints), $messages);
+        $missing = missingStudyFields($goal);
+        $content = callGemini(getChatSystemPrompt($goal, $now, $missing), $messages);
+
         try {
-            return parseChatAssistantResponse($content, $constraints);
+            $parsed = parseStudyGoalResponse($content);
         } catch (Throwable $e) {
             $repaired = callGemini(
-                'You repair invalid schedule planning JSON. Output valid JSON only.',
+                'You repair the study planner reply into one valid JSON object with keys reply, action, goal_patch. Output valid JSON only.',
                 [['role' => 'user', 'content' => buildJsonRepairPrompt($content)]],
                 0.1
             );
-
-            return parseChatAssistantResponse($repaired, $constraints);
+            $parsed = parseStudyGoalResponse($repaired);
         }
+
+        $goal = mergeStudyGoalState(validateStudyGoalPatch($parsed['goal_patch'], $now));
+
+        return finalizeStudyTurn($goal, $parsed['reply'], $now);
     }
 
-    return chatDemoResponse($messages, $constraints);
+    $demo = chatDemoResponse($messages, extractConstraintsFromMessages($messages));
+    $demo['goal'] = $goal;
+    $demo['missing'] = missingStudyFields($goal);
+
+    return $demo;
 }
 
 function chatDemoResponse(array $messages, array $constraints = []): array
